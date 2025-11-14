@@ -11,7 +11,7 @@ int main() {
 
     // 执行调度算法
     scheduler.FCFS();
-    scheduler.RR(2);// 时间片为2
+    scheduler.RR(2);
 
     return 0;
 }
