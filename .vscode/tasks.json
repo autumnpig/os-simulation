@@ -13,7 +13,12 @@
               "${fileDirname}\\${fileBasenameNoExtension}.exe"
           ],
           "options": {
-              "cwd": "${fileDirname}"
+              "cwd": "${fileDirname}",
+              "env": {
+                  "TMPDIR": "${workspaceFolder}\\temp",
+                  "TMP": "${workspaceFolder}\\temp",
+                  "TEMP": "${workspaceFolder}\\temp"
+              }
           },
           "problemMatcher": [
               "$gcc"
