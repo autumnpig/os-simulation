@@ -4,7 +4,7 @@
       {
           "type": "shell",
           "label": "g++ build active file",
-          "command": "C:/msys64/mingw64/bin/g++.exe",
+          "command": "C:/msys64/ucrt64/bin/g++.exe",
           "args": [
               "-g",
               "-std=c++11",
@@ -13,7 +13,11 @@
               "${fileDirname}\\${fileBasenameNoExtension}.exe"
           ],
           "options": {
-              "cwd": "${fileDirname}"
+              "cwd": "${fileDirname}",
+              "env": {
+                    "TEMP": "C:/Users/Temp",  // 设置新的 TEMP 文件夹路径
+                    "TMP": "C:/Users/Temp"    // 设置新的 TMP 文件夹路径
+                }
           },
           "problemMatcher": [
               "$gcc"
