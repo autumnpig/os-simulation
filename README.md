@@ -19,14 +19,14 @@
 os-simulation/           # main 分支
 ├── main.cpp             # 程序入口，整合所有模块
 ├── README.md            # 项目说明文档
-├── scheduler/           # 进程调度模块（成员A）
+├── scheduler/           # 进程调度模块（沈卓）
 │   ├── scheduler.h      # 调度器头文件
 │   └── scheduler.cpp    # 调度器实现
-├── memory_manager/      # 内存管理模块（成员B）
+├── memory_manager/      # 内存管理模块（孙煜彬）
 │   └── ...
-├── storage/             # 存储管理模块（成员C）
+├── storage/             # 存储管理模块（许欣宇）
 │   └── ...
-└── sync/                # 同步机制模块（成员D）
+└── sync/                # 同步机制模块（黄海喆）
     └── ...
 ```
 
