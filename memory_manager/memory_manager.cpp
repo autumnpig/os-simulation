@@ -1,47 +1,51 @@
 #include "memory_manager.h"
 #include <iostream>
 
-// 模拟内存池，大小为 1024 个整数
 int MemoryManager::memoryPool[1024] = {0};
-
-// 记录哪些内存页已被换入
 bool MemoryManager::memorySwappedIn[1024] = {false};
+std::map<int*, int> MemoryManager::allocatedSizes; // 定义静态成员
 
-// 分配内存块
 int* MemoryManager::allocateMemory(int size) {
     for (int i = 0; i < 1024 - size; ++i) {
         bool available = true;
-        // 查找连续的内存空间
         for (int j = 0; j < size; ++j) {
             if (memorySwappedIn[i + j]) {
                 available = false;
                 break;
             }
         }
-        // 找到可用空间，进行分配
         if (available) {
             for (int j = 0; j < size; ++j) {
                 memorySwappedIn[i + j] = true;
             }
-            std::cout << "Memory allocated at position: " << i << std::endl;
-            return &memoryPool[i];
+            // 新增：记录这笔分配的大小
+            int* ptr = &memoryPool[i];
+            allocatedSizes[ptr] = size;
+            
+            std::cout << "[Memory] Allocated " << size << " units at index " << i << std::endl;
+            return ptr;
         }
     }
-    std::cout << "Memory allocation failed: Not enough space." << std::endl;
+    std::cout << "[Memory] Allocation failed: Not enough space." << std::endl;
     return nullptr;
 }
 
-// 释放内存块
 void MemoryManager::freeMemory(int* ptr) {
-    int index = ptr - memoryPool;  // 计算内存块的起始位置
-    if (index >= 0 && index < 1024) {
-        memorySwappedIn[index] = false;
-        std::cout << "Memory freed at position: " << index << std::endl;
+    // 新增：查账本，看这个指针当初申请了多大
+    if (allocatedSizes.find(ptr) != allocatedSizes.end()) {
+        int size = allocatedSizes[ptr]; //以此为依据释放
+        int index = ptr - memoryPool;
+        
+        for (int i = 0; i < size; ++i) {
+            memorySwappedIn[index + i] = false;
+        }
+        
+        allocatedSizes.erase(ptr); // 销毁账目
+        std::cout << "[Memory] Freed " << size << " units at index " << index << std::endl;
     } else {
-        std::cout << "Invalid pointer. Cannot free memory." << std::endl;
+        std::cout << "[Memory] Error: Invalid pointer or double free." << std::endl;
     }
 }
-
 // 内存换入操作
 void MemoryManager::swapIn(int page) {
     if (page >= 0 && page < 1024) {

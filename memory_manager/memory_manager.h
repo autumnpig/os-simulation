@@ -1,6 +1,8 @@
 #ifndef MEMORY_MANAGER_H
 #define MEMORY_MANAGER_H
 
+#include <map>
+
 // MemoryManager 类：负责内存的分配、释放、换入和换出操作
 class MemoryManager {
 public:
@@ -22,6 +24,9 @@ private:
 
     // 模拟内存换入换出操作
     static bool memorySwappedIn[1024];
+
+    // 记录分配大小的账本 <指针, 大小>
+    static std::map<int*, int> allocatedSizes;
 };
 
 #endif // MEMORY_MANAGER_H

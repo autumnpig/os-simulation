@@ -5,45 +5,50 @@
 #include <queue>
 #include <vector>
 #include <string>
+#include <algorithm>
 
-/**
- * @brief 进程控制块（Process Control Block）
- */
+// 增加进程状态枚举
+enum ProcessState { READY, RUNNING, BLOCKED, FINISHED };
+
 struct PCB {
-    std::string pid;      // 进程 ID
-    int arrivalTime;      // 到达时间
-    int burstTime;        // 执行时间
-    int remainingTime;    // 剩余执行时间
+    std::string pid;
+    int arrivalTime;
+    int burstTime;
+    int remainingTime;
+    ProcessState state; // 新增状态
+    int startTime = -1;
+    int finishTime = -1;
 
     PCB(std::string id, int arrival, int burst)
-        : pid(std::move(id)), arrivalTime(arrival), burstTime(burst), remainingTime(burst) {}
+        : pid(id), arrivalTime(arrival), burstTime(burst), remainingTime(burst), state(READY) {}
 };
 
-/**
- * @brief 调度器类，用于管理和调度进程
- */
 class Scheduler {
 public:
-    /**
-     * @brief 向调度队列添加进程
-     * @param process 要添加的进程
-     */
-    void addProcess(const PCB& process);
+    Scheduler();
+    
+    // 创建进程并加入全局列表
+    void createProcess(const std::string& pid, int arrivalTime, int burstTime);
 
-    /**
-     * @brief 执行先来先服务（FCFS）调度算法
-     */
-    void FCFS();
+    // 核心：模拟一个时间单位的流逝
+    void tick(); 
 
-    /**
-     * @brief 执行时间片轮转（RR）调度算法
-     * @param timeSlice 时间片大小
-     */
-    void RR(int timeSlice);
+    // 获取当前时间
+    int getCurrentTime() const { return globalTime; }
+    
+    // 检查是否所有进程都结束了
+    bool isAllFinished() const;
 
 private:
-    std::vector<PCB> processList;  // 进程列表
-    void printProcessExecution(const std::string& pid, int start, int end); // 输出执行信息
+    std::vector<PCB*> allProcesses;     // 所有进程的总账
+    std::queue<PCB*> readyQueue;        // 就绪队列
+    PCB* runningProcess;                // 当前正在 CPU 跑的进程
+    
+    int globalTime;                     // 全局时间
+    int timeSlice;                      // 时间片（用于RR）
+    int currentSliceUsed;               // 当前进程用了多少时间片
+
+    void scheduleRR();                  // 内部调度逻辑
 };
 
 #endif // SCHEDULER_H

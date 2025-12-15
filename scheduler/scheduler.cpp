@@ -1,102 +1,66 @@
 #include "scheduler.h"
-#include <algorithm>
 #include <iomanip>
 
-/**
- * @brief 向调度队列添加进程
- */
-void Scheduler::addProcess(const PCB& process) {
-    processList.push_back(process);
+Scheduler::Scheduler() : runningProcess(nullptr), globalTime(0), timeSlice(2), currentSliceUsed(0) {}
+
+void Scheduler::createProcess(const std::string& pid, int arrivalTime, int burstTime) {
+    PCB* newProcess = new PCB(pid, arrivalTime, burstTime);
+    allProcesses.push_back(newProcess);
+    std::cout << "[System] Process " << pid << " created (Arrival: " << arrivalTime << ", Burst: " << burstTime << ")" << std::endl;
 }
 
-/**
- * @brief 打印进程执行信息
- */
-void Scheduler::printProcessExecution(const std::string& pid, int start, int end) {
-    std::cout << std::setw(8) << pid
-              << " | Start: " << std::setw(3) << start
-              << " | End: " << std::setw(3) << end << std::endl;
+// 核心引擎：每调用一次，系统时间+1
+void Scheduler::tick() {
+    // 1. 检查是否有新进程到达，加入就绪队列
+    for (auto proc : allProcesses) {
+        if (proc->arrivalTime == globalTime && proc->state == READY) { // 简单处理：状态为READY且刚到时间
+            readyQueue.push(proc);
+            std::cout << "[Time " << globalTime << "] Process " << proc->pid << " arrived -> Ready Queue." << std::endl;
+        }
+    }
+
+    // 2. 如果当前没有进程在跑，尝试调度一个
+    if (!runningProcess) {
+        if (!readyQueue.empty()) {
+            runningProcess = readyQueue.front();
+            readyQueue.pop();
+            runningProcess->state = RUNNING;
+            if (runningProcess->startTime == -1) runningProcess->startTime = globalTime;
+            currentSliceUsed = 0;
+            std::cout << "[Time " << globalTime << "] Context Switch: " << runningProcess->pid << " is now RUNNING." << std::endl;
+        }
+    }
+
+    // 3. 执行当前进程
+    if (runningProcess) {
+        runningProcess->remainingTime--;
+        currentSliceUsed++;
+        std::cout << "[Time " << globalTime << "] " << runningProcess->pid << " running (Remaining: " << runningProcess->remainingTime << ")" << std::endl;
+
+        // 4. 判断进程是否结束
+        if (runningProcess->remainingTime <= 0) {
+            runningProcess->state = FINISHED;
+            runningProcess->finishTime = globalTime + 1;
+            std::cout << "[Time " << globalTime << "] Process " << runningProcess->pid << " FINISHED." << std::endl;
+            runningProcess = nullptr; // CPU 空闲了
+        }
+        // 5. 判断时间片是否用完 (RR算法逻辑)
+        else if (currentSliceUsed >= timeSlice) {
+            std::cout << "[Time " << globalTime << "] Process " << runningProcess->pid << " time slice expired -> Ready Queue." << std::endl;
+            runningProcess->state = READY;
+            readyQueue.push(runningProcess); // 放回队尾
+            runningProcess = nullptr;        // CPU 空闲了，等下一次tick调度新进程
+        }
+    } else {
+        std::cout << "[Time " << globalTime << "] CPU Idle..." << std::endl;
+    }
+
+    globalTime++;
 }
 
-/**
- * @brief 先来先服务（FCFS）调度算法实现
- */
-void Scheduler::FCFS() {
-    if (processList.empty()) {
-        std::cout << "No processes to schedule." << std::endl;
-        return;
+bool Scheduler::isAllFinished() const {
+    for (auto proc : allProcesses) {
+        if (proc->state != FINISHED) return false;
     }
-
-    // 按到达时间排序
-    std::sort(processList.begin(), processList.end(),
-              [](const PCB& a, const PCB& b) { return a.arrivalTime < b.arrivalTime; });
-
-    std::cout << "\n===== FCFS Scheduling =====" << std::endl;
-
-    int currentTime = 0;
-    for (auto& process : processList) {
-        if (currentTime < process.arrivalTime)
-            currentTime = process.arrivalTime; // 等待进程到达
-
-        int start = currentTime;
-        currentTime += process.burstTime;
-        int end = currentTime;
-
-        printProcessExecution(process.pid, start, end);
-    }
-}
-
-/**
- * @brief 时间片轮转（RR）调度算法实现
- */
-void Scheduler::RR(int timeSlice) {
-    if (processList.empty()) {
-        std::cout << "No processes to schedule." << std::endl;
-        return;
-    }
-
-    // 按到达时间排序
-    std::sort(processList.begin(), processList.end(),
-              [](const PCB& a, const PCB& b) { return a.arrivalTime < b.arrivalTime; });
-
-    std::queue<PCB> readyQueue;
-    int currentTime = 0;
-    size_t index = 0; // 下一个待加入就绪队列的进程索引
-
-    std::cout << "\n===== Round Robin Scheduling (Time Slice = " << timeSlice << ") =====" << std::endl;
-
-    while (!readyQueue.empty() || index < processList.size()) {
-        // 将到达的进程加入队列
-        while (index < processList.size() && processList[index].arrivalTime <= currentTime) {
-            readyQueue.push(processList[index]);
-            index++;
-        }
-
-        if (readyQueue.empty()) {
-            currentTime = processList[index].arrivalTime; // 跳到下一个进程的到达时间
-            continue;
-        }
-
-        PCB current = readyQueue.front();
-        readyQueue.pop();
-
-        int start = currentTime;
-        int execTime = std::min(timeSlice, current.remainingTime);
-        current.remainingTime -= execTime;
-        currentTime += execTime;
-        int end = currentTime;
-
-        printProcessExecution(current.pid, start, end);
-
-        // 检查在执行过程中是否有新进程到达
-        while (index < processList.size() && processList[index].arrivalTime <= currentTime) {
-            readyQueue.push(processList[index]);
-            index++;
-        }
-
-        // 若该进程未完成，放回队列尾部
-        if (current.remainingTime > 0) {
-            readyQueue.push(current);
-        }
-    }
+    return true;
 }
