@@ -64,3 +64,20 @@ bool Scheduler::isAllFinished() const {
     }
     return true;
 }
+
+void Scheduler::blockCurrentProcess() {
+    if (runningProcess) {
+        runningProcess->state = BLOCKED;
+        std::cout << "[System] Process " << runningProcess->pid << " is BLOCKED." << std::endl;
+        runningProcess = nullptr; // CPU 让出来，下一轮 tick 会调度新进程
+        currentSliceUsed = 0;
+    }
+}
+
+void Scheduler::wakeProcess(PCB* proc) {
+    if (proc && proc->state == BLOCKED) {
+        proc->state = READY;
+        readyQueue.push(proc); // 放回就绪队列
+        std::cout << "[System] Process " << proc->pid << " is WOKEN UP -> Ready Queue." << std::endl;
+    }
+}

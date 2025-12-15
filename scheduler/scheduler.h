@@ -39,6 +39,15 @@ public:
     // 检查是否所有进程都结束了
     bool isAllFinished() const;
 
+    // 获取当前正在运行的进程（用于信号量记录是谁在等待）
+    PCB* getRunningProcess() const { return runningProcess; }
+
+    // 【核心】阻塞当前进程：将 runningProcess 设为 BLOCKED，并从 CPU 移除
+    void blockCurrentProcess();
+
+    // 【核心】唤醒指定进程：将进程设为 READY，并放回 readyQueue
+    void wakeProcess(PCB* proc);
+    
 private:
     std::vector<PCB*> allProcesses;     // 所有进程的总账
     std::queue<PCB*> readyQueue;        // 就绪队列
