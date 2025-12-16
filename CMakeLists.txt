@@ -10,7 +10,9 @@ include_directories(
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/scheduler
     ${CMAKE_SOURCE_DIR}/memory_manager
-    # ${CMAKE_SOURCE_DIR}/sync
+    ${CMAKE_SOURCE_DIR}/storage
+    ${CMAKE_SOURCE_DIR}/sync
+    ${CMAKE_SOURCE_DIR}/ipc
 )
 
 # 定义所有源文件
@@ -18,7 +20,8 @@ set(SOURCES
     main.cpp
     scheduler/scheduler.cpp
     memory_manager/memory_manager.cpp
-    # sync/mutex.cpp
+    storage/storage.cpp
+    ipc/ipc.cpp
 )
 
 # 生成可执行文件

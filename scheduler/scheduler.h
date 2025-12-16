@@ -7,57 +7,100 @@
 #include <string>
 #include <algorithm>
 
-// 增加进程状态枚举
-enum ProcessState { READY, RUNNING, BLOCKED, FINISHED };
+enum ProcessState { READY, RUNNING, BLOCKED, FINISHED, SUSPENDED };
+
+struct TCB {
+    int tid;            // 线程ID (0, 1, 2...)
+    std::string state;  // 状态 "RUNNING", "READY" (简化处理)
+};
 
 struct PCB {
     std::string pid;
     int arrivalTime;
     int burstTime;
     int remainingTime;
-    ProcessState state; // 新增状态
+    ProcessState state;
     int startTime = -1;
     int finishTime = -1;
+    int priorityLevel;
+    int memorySize;
+    std::vector<TCB> threads;  // 线程列表
+    int currentThreadIdx;      // 当前轮到哪个线程跑
+    
 
-    PCB(std::string id, int arrival, int burst)
-        : pid(id), arrivalTime(arrival), burstTime(burst), remainingTime(burst), state(READY) {}
+    // 银行家算法相关数据结构 (假设系统有3类资源)
+    std::vector<int> maxResources;      // Max: 进程最大需求
+    std::vector<int> allocatedResources;// Allocation: 当前已分配
+    std::vector<int> neededResources;   // Need: 还需要多少 (Max - Allocation)
+
+    PCB(std::string id, int arrival, int burst, int memSize = 0)
+        : pid(id), arrivalTime(arrival), burstTime(burst), remainingTime(burst), 
+          state(READY), priorityLevel(0), memorySize(memSize == 0 ? burst : memSize),
+          currentThreadIdx(0) {
+        
+        // 默认创建一个主线程 (TID 0)
+        threads.push_back({0, "READY"});
+
+        maxResources = {0, 0, 0};
+        allocatedResources = {0, 0, 0};
+        neededResources = {0, 0, 0};
+    }
 };
 
 class Scheduler {
 public:
     Scheduler();
     
-    // 创建进程并加入全局列表
-    void createProcess(const std::string& pid, int arrivalTime, int burstTime);
-
-    // 核心：模拟一个时间单位的流逝
+    void createProcess(const std::string& pid, int arrivalTime, int burstTime, int memSize = 0);
     void tick(); 
-
-    // 获取当前时间
     int getCurrentTime() const { return globalTime; }
-    
-    // 检查是否所有进程都结束了
     bool isAllFinished() const;
-
-    // 获取当前正在运行的进程（用于信号量记录是谁在等待）
     PCB* getRunningProcess() const { return runningProcess; }
-
-    // 【核心】阻塞当前进程：将 runningProcess 设为 BLOCKED，并从 CPU 移除
     void blockCurrentProcess();
-
-    // 【核心】唤醒指定进程：将进程设为 READY，并放回 readyQueue
     void wakeProcess(PCB* proc);
     
-private:
-    std::vector<PCB*> allProcesses;     // 所有进程的总账
-    std::queue<PCB*> readyQueue;        // 就绪队列
-    PCB* runningProcess;                // 当前正在 CPU 跑的进程
-    
-    int globalTime;                     // 全局时间
-    int timeSlice;                      // 时间片（用于RR）
-    int currentSliceUsed;               // 当前进程用了多少时间片
+    // 获取所有进程（用于PS命令）
+    const std::vector<PCB*>& getAllProcesses() const { return allProcesses; }
 
-    void scheduleRR();                  // 内部调度逻辑
+    // 初始化系统资源 (A, B, C)
+    void setSystemResources(int r1, int r2, int r3);
+
+    // 设置进程的最大资源声明 (Claim)
+    bool setProcessMaxRes(PCB* proc, int r1, int r2, int r3);
+
+    // 尝试申请资源 (银行家算法核心)
+    // 返回 true 表示安全并分配，false 表示不安全/不足并拒绝
+    bool tryRequestResources(PCB* proc, int r1, int r2, int r3);
+
+    // 释放资源
+    void releaseResources(PCB* proc, int r1, int r2, int r3);
+
+    // 根据 PID 查找 PCB 指针
+    PCB* getProcess(const std::string& pid);
+
+    // 挂起进程（只负责改状态）
+    void suspendProcess(const std::string& pid);
+
+    // 激活进程（只负责改状态和入队）
+    void activateProcess(const std::string& pid);
+
+    // 给指定进程创建线程
+    void createThread(const std::string& pid);
+
+private:
+    std::vector<PCB*> allProcesses;     
+    std::vector<std::queue<PCB*>> multiLevelQueues;      
+    PCB* runningProcess;                
+    int globalTime;                     
+    const std::vector<int> TIME_SLICES = {1, 2, 4};                      
+    int currentSliceUsed;               
+
+    // 【新增】系统当前可用的资源向量 (Available)
+    std::vector<int> availableResources;
+
+    // 【新增】安全性检查算法
+    bool checkSafety(const std::vector<int>& work, const std::vector<PCB*>& activeProcs);
+              
 };
 
 #endif // SCHEDULER_H
