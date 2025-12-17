@@ -6,49 +6,52 @@
 #include <vector>
 #include <iostream>
 #include <fstream>
+#include <cmath>
+
+// 定义磁盘块大小（例如每块 32 字节）
+const int BLOCK_SIZE = 32;
+// 假设总容量 1024 字节 -> 32 个块
+const int TOTAL_BLOCKS = 1024 / BLOCK_SIZE;
 
 struct FileNode {
     std::string fileName;
     int size;
-    std::string content; // 模拟文件内容
-    int createdAt;       // 创建时间 (对应全局时间)
+    std::string content; // 实际内容（为了简化读写，仍然保留这个，但逻辑上它分散在 blockIndices 里）
+    int createdAt;       
+    
+    // 索引表：记录该文件占用了哪些物理块
+    std::vector<int> blockIndices; 
 };
 
 class StorageManager {
 public:
     StorageManager(int capacity = 1024);
 
-    // 创建文件
     bool createFile(const std::string& name, int size);
-    
-    // 删除文件
     bool deleteFile(const std::string& name);
-    
-    // 写入/覆盖文件内容
     bool writeFile(const std::string& name, const std::string& content);
-    
-    // 读取文件内容
     std::string readFile(const std::string& name);
-    
-    // 列出所有文件
     void listFiles() const;
-
-    // 获取剩余磁盘空间
     int getFreeSpace() const;
-
-    // 获取文件大小
     int getFileSize(const std::string& name) const;
 
-    // 将虚拟磁盘保存到真实的本地文件
     void saveToDisk(const std::string& realFileName) const;
-
-    // 从真实的本地文件加载虚拟磁盘
     void loadFromDisk(const std::string& realFileName);
+
+    // 【新增】打印磁盘位图状态（用于展示块分配原理）
+    void printDiskStatus() const;
 
 private:
     int totalCapacity;
-    int usedSpace;
-    std::map<std::string, FileNode> fileSystem; // 文件名 -> 文件节点
+    std::map<std::string, FileNode> fileSystem; 
+
+    // 【新增】位示图：记录哪些块被占用了 (true=占用, false=空闲)
+    bool blockBitmap[TOTAL_BLOCKS];
+
+    // 辅助：分配块
+    bool allocateBlocks(int size, std::vector<int>& outBlocks);
+    // 辅助：释放块
+    void freeBlocks(const std::vector<int>& blocks);
 };
 
 #endif // STORAGE_H
