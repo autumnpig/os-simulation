@@ -1,136 +1,69 @@
-# os-simulation
-大三操作系统课设
+# 操作系统模拟系统 (OS Simulation)
 
-## 项目说明
+大三操作系统课程设计项目
 
-这是一个操作系统课程设计项目，旨在模拟操作系统的核心功能。项目采用模块化设计，由小组成员分工协作完成，每个成员负责一个核心模块的开发。
+## 1. 项目简介
 
-**项目模块：**
-- **进程调度模块 (scheduler/)** - 沈卓负责，实现进程调度算法（如 FCFS、RR 等）
-- **内存管理模块 (memory_manager/)** - 孙煜彬负责，实现内存分配与管理功能
-- **存储管理模块 (storage/)** - 许欣宇负责，实现文件系统和存储管理功能
-- **同步机制模块 (sync/)** - 黄海喆负责，实现进程同步与互斥机制
+本项目是一个基于 C++ 开发的操作系统核心功能模拟系统。系统采用模块化设计，模拟了现代操作系统的核心组件，包括进程调度、内存管理、文件系统、进程同步、进程通信（IPC）以及死锁处理机制。
 
-所有模块通过 `main.cpp` 统一整合，形成一个完整的操作系统模拟系统。
+系统通过一个命令行 Shell 界面与用户交互，支持用户输入命令来创建进程、申请资源、执行调度、管理文件等，能够直观地展示操作系统内部的运行机制。
 
-## 项目结构
+## 2. 核心功能特性
 
-```
-os-simulation/           # main 分支
-├── main.cpp             # 程序入口，整合所有模块
-├── README.md            # 项目说明文档
-├── scheduler/           # 进程调度模块（沈卓）
-│   ├── scheduler.h      # 调度器头文件
-│   └── scheduler.cpp    # 调度器实现
-├── memory_manager/      # 内存管理模块（孙煜彬）
-│   └── ...
-├── storage/             # 存储管理模块（许欣宇）
-│   └── ...
-└── sync/                # 同步机制模块（黄海喆）
-    └── ...
-```
+### 2.1 进程管理与调度 (Scheduler)
+- **进程控制**：支持进程的创建、终止、阻塞、唤醒，以及**挂起 (Suspend)** 与 **激活 (Activate)** 操作。
+- **线程机制**：实现了用户级线程模型。支持为进程创建多个线程 (`TCB`)，并在进程获得 CPU 时间片时在内部进行线程轮转。
+- **调度算法**：实现了 **多级反馈队列 (MLFQ)** 调度算法。
+  - 包含 3 级优先级队列，时间片分别为 1, 2, 4。
+  - 支持抢占式调度：高优先级进程到达时抢占 CPU。
+  - 动态优先级调整：时间片用完后进程降级。
 
-## 开发说明
+### 2.2 内存管理 (Memory Manager)
+- **分配策略**：模拟 1024 个单元的物理内存池，采用 **首次适应算法 (First Fit)** 进行连续内存分配。
+- **交换技术 (Swapping)**：结合进程挂起功能，实现了内存的换入换出机制。
+  - `suspend`：将进程内存数据换出到外存（模拟释放内存）。
+  - `activate`：重新申请内存并将进程换入。
 
-本项目采用分支协作开发模式：
-- 每个成员在自己的分支上开发对应的模块
-- 完成开发后通过 Pull Request 合并到 main 分支
-- main 分支始终保持完整的、可运行的项目代码
+### 2.3 死锁处理 (Deadlock Handling)
+- **银行家算法**：实现了完整的死锁避免机制。
+  - 支持系统资源初始化 (`init_res`)。
+  - 支持进程声明最大资源需求 (`claim`)。
+  - 在进程申请资源 (`req`) 时进行安全性检查，若系统不安全则拒绝分配，防止死锁。
 
-## 开发环境配置
+### 2.4 进程同步与通信
+- **同步互斥**：实现了 **信号量 (Semaphore)** 机制，支持 P (Wait) / V (Signal) 操作，解决临界区互斥问题。
+- **进程通信 (IPC)**：实现了基于 **消息队列** 的通信机制，支持进程间发送和接收消息。
 
-### 1. 安装 C++ 编译器
+### 2.5 存储管理 (Storage)
+- **文件系统**：模拟了扁平化文件系统，支持文件的创建 (`touch`)、删除 (`rm`)、读写和查看 (`ls`)。
+- **持久化**：支持将虚拟磁盘状态保存到本地文件 (`os_disk.data`)，并在系统启动时自动加载。
+- **程序加载**：支持 `exec` 命令加载虚拟磁盘中的文件作为进程运行。
 
-**Windows 系统推荐以下方式之一：**
+## 3. 开发团队与分工
 
-- **方式一：MinGW-w64（推荐）**
-  - 下载地址：https://www.mingw-w64.org/downloads/
-  - 或者使用 MSYS2：https://www.msys2.org/
-  - 安装后将 `bin` 目录添加到系统 PATH 环境变量
+本项目由小组成员协作完成，具体分工如下：
 
-- **方式二：Visual Studio**
-  - 安装 Visual Studio 并选择 C++ 工作负载
-  - 使用 Visual Studio 自带的 MSVC 编译器
+* **沈卓**：负责 **进程调度模块 (Scheduler)**
+    * 实现 PCB/TCB 结构、MLFQ 调度算法、银行家算法及死锁避免逻辑。
+* **孙煜彬**：负责 **内存管理模块 (Memory Manager)**
+    * 实现内存池管理、首次适应分配算法、内存回收及换入换出逻辑。
+* **许欣宇**：负责 **存储管理模块 (Storage)**
+    * 实现虚拟文件系统、文件增删改查操作及磁盘数据的持久化存储。
+* **黄海喆**：负责 **同步与通信模块 (Sync/IPC)**
+    * 实现信号量机制 (PV操作) 及 消息队列通信机制。
 
-### 2. 配置 VS Code
+所有模块通过 `main.cpp` 统一整合，形成完整的模拟系统。
 
-由于每个人的开发环境不同，`.vscode` 目录已被忽略，需要自己配置：
+## 4. 快速开始
 
-1. **创建 `.vscode/tasks.json`**（用于编译）：
-```json
-{
-  "version": "2.0.0",
-  "tasks": [
-      {
-          "type": "shell",
-          "label": "g++ build active file",
-          "command": "g++",  // 如果 g++ 在 PATH 中，直接写 "g++"，否则写完整路径
-          "args": [
-              "-g",
-              "-std=c++11",
-              "${fileDirname}\\*.cpp",
-              "-o",
-              "${fileDirname}\\${fileBasenameNoExtension}.exe"
-          ],
-          "options": {
-              "cwd": "${fileDirname}"
-          },
-          "problemMatcher": [
-              "$gcc"
-          ],
-          "group": {
-              "kind": "build",
-              "isDefault": true
-          }
-      }
-  ]
-}
-```
+### 编译环境
+- 编译器：支持 C++17 标准 (GCC/Clang/MSVC)
+- 构建工具：CMake 或直接使用 g++
 
-2. **创建 `.vscode/c_cpp_properties.json`**（用于代码提示）：
-```json
-{
-    "configurations": [
-        {
-            "name": "Win32",
-            "includePath": [
-                "${workspaceFolder}/**"
-            ],
-            "defines": [
-                "_DEBUG",
-                "UNICODE",
-                "_UNICODE"
-            ],
-            "compilerPath": "g++",  // 改为你自己的编译器路径
-            "cStandard": "c11",
-            "cppStandard": "c++17",
-            "intelliSenseMode": "windows-gcc-x64"
-        }
-    ],
-    "version": 4
-}
-```
-
-**注意：** 将 `"g++"` 替换为你电脑上实际的编译器路径，例如：
-- MinGW: `C:/msys64/mingw64/bin/g++.exe`
-- Visual Studio: `C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.xx.xxxxx/bin/Hostx64/x64/cl.exe`
-
-### 3. 手动编译运行
-
-如果不想配置 VS Code，也可以直接在终端手动编译：
-
+### 编译运行 (命令行方式)
 ```bash
-# 编译完整项目（所有模块）
-g++ -std=c++11 main.cpp scheduler/*.cpp memory_manager/*.cpp storage/*.cpp sync/*.cpp -o os-simulation.exe
+# 编译所有模块
+g++ -std=c++17 main.cpp scheduler/*.cpp memory_manager/*.cpp storage/*.cpp ipc/*.cpp -o os-sim
 
 # 运行
-./os-simulation.exe
-```
-
-**注意：** 如果某个模块还未完成，可以暂时注释掉相关代码，或使用条件编译来处理。
-
-## 使用方法
-
-1. 确保所有模块代码已合并到 main 分支
-2. 编译主程序（参考上方编译命令）
-3. 运行生成的可执行文件
+./os-sim
