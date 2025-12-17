@@ -1,33 +1,48 @@
 #include "scheduler.h"
 #include <iomanip>
 
-// 构造函数：初始化多级队列，这里初始化为3级
+// 构造函数
 Scheduler::Scheduler() : runningProcess(nullptr), globalTime(0), currentSliceUsed(0) {
     multiLevelQueues.resize(3); 
-    // 银行家算法资源默认初始化
     availableResources = {0, 0, 0}; 
+    currentAlgorithm = ALG_MLFQ; // 默认为 MLFQ
+}
+
+// 设置算法
+void Scheduler::setAlgorithm(SchedAlgorithm algo) {
+    currentAlgorithm = algo;
+}
+
+// 重置调度器
+void Scheduler::reset() {
+    // 释放旧PCB内存
+    // 注意：实际项目中要小心内存管理，这里假设 main 里的逻辑是独立的
+    // 如果是 createProcess new 出来的，这里可以不 delete，依赖外部或析构
+    // 但为了纯净测试，我们清空容器
+    allProcesses.clear(); 
+    for(auto& q : multiLevelQueues) {
+        while(!q.empty()) q.pop();
+    }
+    runningProcess = nullptr;
+    globalTime = 0;
+    currentSliceUsed = 0;
+    availableResources = {0, 0, 0};
 }
 
 // 创建进程
 void Scheduler::createProcess(const std::string& pid, int arrivalTime, int burstTime, int memSize) {
     PCB* newProcess = new PCB(pid, arrivalTime, burstTime, memSize);
-    newProcess->priorityLevel = 0; // 新进程进入最高优先级
+    newProcess->priorityLevel = 0; 
     allProcesses.push_back(newProcess);
-    std::cout << "[System] Process " << pid << " created (Level 0, Mem: " << newProcess->memorySize << ").\n";
+    // 注意：如果只是做对比测试，可以注释掉这行 log 以保持输出整洁
+    // std::cout << "[System] Process " << pid << " created.\n";
 }
 
-// 【新增】创建线程
+// 创建线程
 void Scheduler::createThread(const std::string& pid) {
     PCB* p = getProcess(pid);
-    if (!p) {
-        std::cout << "[Error] Process " << pid << " not found.\n";
-        return;
-    }
-    if (p->state == FINISHED) {
-        std::cout << "[Error] Process finished.\n";
-        return;
-    }
-
+    if (!p) { std::cout << "[Error] Process " << pid << " not found.\n"; return; }
+    if (p->state == FINISHED) { std::cout << "[Error] Process finished.\n"; return; }
     int newTid = p->threads.size();
     p->threads.push_back({newTid, "READY"});
     std::cout << "[Thread] Created Thread T" << newTid << " for Process " << pid << ".\n";
@@ -45,16 +60,12 @@ PCB* Scheduler::getProcess(const std::string& pid) {
 void Scheduler::suspendProcess(const std::string& pid) {
     PCB* p = getProcess(pid);
     if (!p) { std::cout << "[Error] Not found.\n"; return; }
-    if (p->state == FINISHED) { std::cout << "[Error] Process finished.\n"; return; }
-    if (p->state == SUSPENDED) { std::cout << "[System] Already suspended.\n"; return; }
+    if (p->state == FINISHED || p->state == SUSPENDED) return;
 
-    // 如果正在运行，强制剥夺
     if (p == runningProcess) {
         runningProcess = nullptr; 
         currentSliceUsed = 0;
-        std::cout << "[System] Running process " << pid << " suspended and removed from CPU.\n";
     }
-
     p->state = SUSPENDED;
     std::cout << "[System] Process " << pid << " SUSPENDED.\n";
 }
@@ -62,20 +73,104 @@ void Scheduler::suspendProcess(const std::string& pid) {
 // 激活进程
 void Scheduler::activateProcess(const std::string& pid) {
     PCB* p = getProcess(pid);
-    if (!p || p->state != SUSPENDED) {
-        std::cout << "[Error] Cannot activate (Not found or not suspended).\n";
-        return;
-    }
+    if (!p || p->state != SUSPENDED) return;
 
     p->state = READY;
-    // 激活后放回原优先级队列
     multiLevelQueues[p->priorityLevel].push(p);
-    std::cout << "[System] Process " << pid << " ACTIVATED -> Queue Level " << p->priorityLevel << ".\n";
+    std::cout << "[System] Process " << pid << " ACTIVATED.\n";
 }
 
-// --- 核心调度逻辑 (MLFQ + Suspend + Threading + Banker) ---
+// --- 核心调度入口 ---
 void Scheduler::tick() {
-    // 1. 检查新到达的进程
+    switch (currentAlgorithm) {
+        case ALG_FCFS: tickFCFS(); break;
+        case ALG_RR:   tickRR();   break;
+        case ALG_MLFQ: tickMLFQ(); break;
+    }
+    globalTime++;
+}
+
+// 1. FCFS 实现
+void Scheduler::tickFCFS() {
+    // 检查新到达
+    for (auto proc : allProcesses) {
+        if (proc->arrivalTime == globalTime && proc->state == READY) {
+            multiLevelQueues[0].push(proc);
+            // std::cout << "[Time " << globalTime << "] " << proc->pid << " arrived.\n";
+        }
+    }
+
+    // 调度
+    if (!runningProcess && !multiLevelQueues[0].empty()) {
+        PCB* candidate = multiLevelQueues[0].front();
+        if (candidate->state != SUSPENDED) {
+            runningProcess = candidate;
+            multiLevelQueues[0].pop();
+            runningProcess->state = RUNNING;
+            if (runningProcess->startTime == -1) runningProcess->startTime = globalTime;
+            // std::cout << "[Time " << globalTime << "] " << runningProcess->pid << " RUNNING (FCFS).\n";
+        } else {
+             multiLevelQueues[0].pop(); // 移除挂起的
+        }
+    }
+
+    // 执行
+    if (runningProcess) {
+        runningProcess->remainingTime--;
+        if (runningProcess->remainingTime <= 0) {
+            runningProcess->state = FINISHED;
+            runningProcess->finishTime = globalTime + 1;
+            // std::cout << "[Time " << globalTime << "] " << runningProcess->pid << " FINISHED.\n";
+            releaseResources(runningProcess, runningProcess->allocatedResources[0], runningProcess->allocatedResources[1], runningProcess->allocatedResources[2]);
+            runningProcess = nullptr;
+        }
+    }
+}
+
+// 2. RR 实现 (时间片=2)
+void Scheduler::tickRR() {
+    int timeSlice = 2; 
+
+    for (auto proc : allProcesses) {
+        if (proc->arrivalTime == globalTime && proc->state == READY) {
+            multiLevelQueues[0].push(proc);
+        }
+    }
+
+    if (!runningProcess && !multiLevelQueues[0].empty()) {
+        PCB* candidate = multiLevelQueues[0].front();
+        multiLevelQueues[0].pop();
+        
+        if (candidate->state != SUSPENDED) {
+            runningProcess = candidate;
+            runningProcess->state = RUNNING;
+            currentSliceUsed = 0;
+            if (runningProcess->startTime == -1) runningProcess->startTime = globalTime;
+            // std::cout << "[Time " << globalTime << "] " << runningProcess->pid << " RUNNING (RR).\n";
+        }
+    }
+
+    if (runningProcess) {
+        runningProcess->remainingTime--;
+        currentSliceUsed++;
+
+        if (runningProcess->remainingTime <= 0) {
+            runningProcess->state = FINISHED;
+            runningProcess->finishTime = globalTime + 1;
+            releaseResources(runningProcess, runningProcess->allocatedResources[0], runningProcess->allocatedResources[1], runningProcess->allocatedResources[2]);
+            runningProcess = nullptr;
+        } 
+        else if (currentSliceUsed >= timeSlice) {
+            runningProcess->state = READY;
+            multiLevelQueues[0].push(runningProcess); // 放回队尾
+            runningProcess = nullptr;
+        }
+    }
+}
+
+// 3. MLFQ 实现 (原始逻辑)
+void Scheduler::tickMLFQ() {
+    // 1. 检查新到达
     for (auto proc : allProcesses) {
         if (proc->arrivalTime == globalTime && proc->state == READY) {
             proc->priorityLevel = 0;
@@ -84,14 +179,12 @@ void Scheduler::tick() {
         }
     }
 
-    // 2. 抢占逻辑 (Preemption)
+    // 2. 抢占
     if (runningProcess) {
         for (int i = 0; i < runningProcess->priorityLevel; ++i) {
-            // 简单的抢占检查：如果高优先级队列非空，就抢占
-            // (严谨的话应该检查队列里是否有非挂起的进程，这里简化处理)
             if (!multiLevelQueues[i].empty()) {
                 std::cout << "[Time " << globalTime << "] Preemption! " << runningProcess->pid 
-                          << " (Level " << runningProcess->priorityLevel << ") yielded.\n";
+                          << " yielded.\n";
                 runningProcess->state = READY;
                 multiLevelQueues[runningProcess->priorityLevel].push(runningProcess);
                 runningProcess = nullptr;
@@ -100,107 +193,95 @@ void Scheduler::tick() {
         }
     }
 
-    // 3. 调度逻辑 (从高到低找进程，跳过挂起的)
+    // 3. 调度
     if (!runningProcess) {
         for (int i = 0; i < 3; ++i) {
             while (!multiLevelQueues[i].empty()) {
                 PCB* candidate = multiLevelQueues[i].front();
-                
-                // 【挂起检查】如果队首是挂起的，直接移除并跳过
                 if (candidate->state == SUSPENDED) {
-                    multiLevelQueues[i].pop(); 
-                    continue; 
+                    multiLevelQueues[i].pop(); continue; 
                 }
-                
-                // 找到有效进程
                 runningProcess = candidate;
                 multiLevelQueues[i].pop();
-                
                 runningProcess->state = RUNNING;
                 if (runningProcess->startTime == -1) runningProcess->startTime = globalTime;
                 currentSliceUsed = 0;
                 
-                // 获取当前线程ID (仅用于显示)
                 int currentTid = 0;
                 if (!runningProcess->threads.empty()) {
                     currentTid = runningProcess->threads[runningProcess->currentThreadIdx].tid;
                 }
-                
                 std::cout << "[Time " << globalTime << "] Context Switch: " << runningProcess->pid 
-                          << " (Thread T" << currentTid << ") RUNNING (Queue Level " << i << ").\n";
-                break; // 找到一个就退出 while
+                          << " (T" << currentTid << ") RUNNING (L" << i << ").\n";
+                break; 
             }
-            if (runningProcess) break; // 找到一个就退出 for
+            if (runningProcess) break; 
         }
     }
 
-    // 4. 执行当前进程
+    // 4. 执行
     if (runningProcess) {
         runningProcess->remainingTime--;
         currentSliceUsed++;
         
-        // 【线程轮转】模拟并发
         if (!runningProcess->threads.empty()) {
             int tCount = runningProcess->threads.size();
-            int tIdx = runningProcess->currentThreadIdx;
-            // 轮转到下一个线程
-            runningProcess->currentThreadIdx = (tIdx + 1) % tCount;
+            runningProcess->currentThreadIdx = (runningProcess->currentThreadIdx + 1) % tCount;
         }
 
-        // 获取当前层级允许的最大时间片
         int maxSlice = TIME_SLICES[runningProcess->priorityLevel];
         
-        // 4.1 进程结束
         if (runningProcess->remainingTime <= 0) {
             runningProcess->state = FINISHED;
             runningProcess->finishTime = globalTime + 1;
             std::cout << "[Time " << globalTime << "] Process " << runningProcess->pid << " FINISHED.\n";
-            
-            // 【银行家算法】自动归还资源
-            releaseResources(runningProcess, 
-                runningProcess->allocatedResources[0],
-                runningProcess->allocatedResources[1],
-                runningProcess->allocatedResources[2]);
-
+            releaseResources(runningProcess, runningProcess->allocatedResources[0], runningProcess->allocatedResources[1], runningProcess->allocatedResources[2]);
             runningProcess = nullptr; 
         }
-        // 4.2 时间片用完 -> 降级 (MLFQ 核心)
         else if (currentSliceUsed >= maxSlice) {
             int oldLevel = runningProcess->priorityLevel;
-            int newLevel = oldLevel;
-            
-            // 还没到最低级(2)就降级，否则保持
-            if (newLevel < 2) newLevel++;
+            int newLevel = (oldLevel < 2) ? oldLevel + 1 : oldLevel;
             
             runningProcess->priorityLevel = newLevel;
             runningProcess->state = READY;
-            
-            // 放回新层级队尾
             multiLevelQueues[newLevel].push(runningProcess);
             
             std::cout << "[Time " << globalTime << "] " << runningProcess->pid 
-                      << " slice expired (" << currentSliceUsed << "). Demoted L" 
-                      << oldLevel << " -> L" << newLevel << ".\n";
-                      
-            runningProcess = nullptr; // CPU 空闲
+                      << " slice expired. Demoted L" << oldLevel << " -> L" << newLevel << ".\n";
+            runningProcess = nullptr; 
         }
     } else {
         std::cout << "[Time " << globalTime << "] CPU Idle...\n";
     }
-
-    globalTime++;
 }
 
-// 唤醒进程
+// 统计计算
+SchedStats Scheduler::calculateStats() {
+    double totalTurnaround = 0;
+    double totalWeighted = 0;
+    int count = 0;
+
+    for (auto p : allProcesses) {
+        if (p->state == FINISHED) {
+            double turn = p->finishTime - p->arrivalTime;
+            double weighted = turn / p->burstTime;
+            totalTurnaround += turn;
+            totalWeighted += weighted;
+            count++;
+        }
+    }
+    if (count == 0) return {0.0, 0.0};
+    return {totalTurnaround / count, totalWeighted / count};
+}
+
 void Scheduler::wakeProcess(PCB* proc) {
     if (proc && proc->state == BLOCKED) {
         proc->state = READY;
         multiLevelQueues[proc->priorityLevel].push(proc);
-        std::cout << "[System] " << proc->pid << " Woken up -> Queue Level " << proc->priorityLevel << ".\n";
+        std::cout << "[System] " << proc->pid << " Woken up.\n";
     }
 }
 
-// 阻塞当前进程
 void Scheduler::blockCurrentProcess() {
     if (runningProcess) {
         runningProcess->state = BLOCKED;
@@ -210,7 +291,6 @@ void Scheduler::blockCurrentProcess() {
     }
 }
 
-// 检查是否全部完成
 bool Scheduler::isAllFinished() const {
     for (auto proc : allProcesses) {
         if (proc->state != FINISHED) return false;
@@ -218,18 +298,17 @@ bool Scheduler::isAllFinished() const {
     return true;
 }
 
-// --- 银行家算法实现 (保持不变) ---
-
+// --- 银行家算法  ---
 void Scheduler::setSystemResources(int r1, int r2, int r3) {
     availableResources = {r1, r2, r3};
-    std::cout << "[Banker] System Resources Initialized: A=" << r1 << ", B=" << r2 << ", C=" << r3 << std::endl;
+    std::cout << "[Banker] System Resources: " << r1 << " " << r2 << " " << r3 << "\n";
 }
 
 bool Scheduler::setProcessMaxRes(PCB* proc, int r1, int r2, int r3) {
     if (!proc) return false;
     proc->maxResources = {r1, r2, r3};
     proc->neededResources = {r1, r2, r3};
-    std::cout << "[Banker] Process " << proc->pid << " declared Max Claim: (" << r1 << "," << r2 << "," << r3 << ")\n";
+    std::cout << "[Banker] " << proc->pid << " Max Claim: " << r1 << " " << r2 << " " << r3 << "\n";
     return true;
 }
 
@@ -245,8 +324,7 @@ bool Scheduler::checkSafety(const std::vector<int>& work, const std::vector<PCB*
                 bool canProceed = true;
                 for (int r = 0; r < 3; ++r) {
                     if (activeProcs[i]->neededResources[r] > currentWork[r]) {
-                        canProceed = false;
-                        break;
+                        canProceed = false; break;
                     }
                 }
                 if (canProceed) {
@@ -265,8 +343,8 @@ bool Scheduler::checkSafety(const std::vector<int>& work, const std::vector<PCB*
 bool Scheduler::tryRequestResources(PCB* proc, int r1, int r2, int r3) {
     if (!proc) return false;
     std::vector<int> request = {r1, r2, r3};
-    for (int i = 0; i < 3; ++i) if (request[i] > proc->neededResources[i]) { std::cout << "[Banker] Error: Request exceeds Need.\n"; return false; }
-    for (int i = 0; i < 3; ++i) if (request[i] > availableResources[i]) { std::cout << "[Banker] Wait: Resources not available.\n"; return false; }
+    for (int i = 0; i < 3; ++i) if (request[i] > proc->neededResources[i]) { std::cout << "[Banker] Error: Exceeds Need.\n"; return false; }
+    for (int i = 0; i < 3; ++i) if (request[i] > availableResources[i]) { std::cout << "[Banker] Wait: Not available.\n"; return false; }
 
     std::vector<int> originalAvailable = availableResources;
     std::vector<int> originalAlloc = proc->allocatedResources;
@@ -282,7 +360,7 @@ bool Scheduler::tryRequestResources(PCB* proc, int r1, int r2, int r3) {
     for (auto p : allProcesses) if (p->state != FINISHED) activeProcs.push_back(p);
 
     if (checkSafety(availableResources, activeProcs)) {
-        std::cout << "[Banker] Safe! Resources allocated to " << proc->pid << ".\n";
+        std::cout << "[Banker] Safe! Allocated.\n";
         return true;
     } else {
         std::cout << "[Banker] Unsafe! Rolled back.\n";
@@ -305,5 +383,5 @@ void Scheduler::releaseResources(PCB* proc, int r1, int r2, int r3) {
             releasedAny = true;
         }
     }
-    if (releasedAny) std::cout << "[Banker] Process " << proc->pid << " released resources.\n";
+    // if (releasedAny) std::cout << "[Banker] Released resources.\n";
 }

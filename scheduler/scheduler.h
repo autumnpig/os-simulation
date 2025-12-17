@@ -7,11 +7,20 @@
 #include <string>
 #include <algorithm>
 
+// --- 调度算法枚举 ---
+enum SchedAlgorithm { ALG_FCFS, ALG_RR, ALG_MLFQ };
+
+// --- 统计数据结构 ---
+struct SchedStats {
+    double avgTurnaroundTime;        // 平均周转时间
+    double avgWeightedTurnaroundTime;// 平均带权周转时间
+};
+
 enum ProcessState { READY, RUNNING, BLOCKED, FINISHED, SUSPENDED };
 
 struct TCB {
-    int tid;            // 线程ID (0, 1, 2...)
-    std::string state;  // 状态 "RUNNING", "READY" (简化处理)
+    int tid;            // 线程ID
+    std::string state;  // 状态
 };
 
 struct PCB {
@@ -27,20 +36,16 @@ struct PCB {
     std::vector<TCB> threads;  // 线程列表
     int currentThreadIdx;      // 当前轮到哪个线程跑
     
-
-    // 银行家算法相关数据结构 (假设系统有3类资源)
-    std::vector<int> maxResources;      // Max: 进程最大需求
-    std::vector<int> allocatedResources;// Allocation: 当前已分配
-    std::vector<int> neededResources;   // Need: 还需要多少 (Max - Allocation)
+    // 银行家算法相关
+    std::vector<int> maxResources;      
+    std::vector<int> allocatedResources;
+    std::vector<int> neededResources;   
 
     PCB(std::string id, int arrival, int burst, int memSize = 0)
         : pid(id), arrivalTime(arrival), burstTime(burst), remainingTime(burst), 
           state(READY), priorityLevel(0), memorySize(memSize == 0 ? burst : memSize),
           currentThreadIdx(0) {
-        
-        // 默认创建一个主线程 (TID 0)
         threads.push_back({0, "READY"});
-
         maxResources = {0, 0, 0};
         allocatedResources = {0, 0, 0};
         neededResources = {0, 0, 0};
@@ -59,33 +64,23 @@ public:
     void blockCurrentProcess();
     void wakeProcess(PCB* proc);
     
-    // 获取所有进程（用于PS命令）
     const std::vector<PCB*>& getAllProcesses() const { return allProcesses; }
 
-    // 初始化系统资源 (A, B, C)
+    // 银行家算法
     void setSystemResources(int r1, int r2, int r3);
-
-    // 设置进程的最大资源声明 (Claim)
     bool setProcessMaxRes(PCB* proc, int r1, int r2, int r3);
-
-    // 尝试申请资源 (银行家算法核心)
-    // 返回 true 表示安全并分配，false 表示不安全/不足并拒绝
     bool tryRequestResources(PCB* proc, int r1, int r2, int r3);
-
-    // 释放资源
     void releaseResources(PCB* proc, int r1, int r2, int r3);
 
-    // 根据 PID 查找 PCB 指针
     PCB* getProcess(const std::string& pid);
-
-    // 挂起进程（只负责改状态）
     void suspendProcess(const std::string& pid);
-
-    // 激活进程（只负责改状态和入队）
     void activateProcess(const std::string& pid);
-
-    // 给指定进程创建线程
     void createThread(const std::string& pid);
+
+    // --- 对比分析相关接口 ---
+    void setAlgorithm(SchedAlgorithm algo); // 设置算法
+    SchedStats calculateStats();            // 计算统计结果
+    void reset();                           // 重置调度器状态（用于重新测试）
 
 private:
     std::vector<PCB*> allProcesses;     
@@ -95,12 +90,17 @@ private:
     const std::vector<int> TIME_SLICES = {1, 2, 4};                      
     int currentSliceUsed;               
 
-    // 【新增】系统当前可用的资源向量 (Available)
     std::vector<int> availableResources;
 
-    // 【新增】安全性检查算法
     bool checkSafety(const std::vector<int>& work, const std::vector<PCB*>& activeProcs);
-              
+
+    // --- 当前算法模式 ---
+    SchedAlgorithm currentAlgorithm;
+
+    // --- 具体算法实现 ---
+    void tickFCFS();
+    void tickRR();
+    void tickMLFQ();
 };
 
 #endif // SCHEDULER_H
