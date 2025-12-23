@@ -1,113 +1,115 @@
-#ifndef SCHEDULER_H
-#define SCHEDULER_H
-
-#include <iostream>
-#include <queue>
+#pragma once
 #include <vector>
+#include <queue>
 #include <string>
-#include <algorithm>
 
-// --- 调度算法枚举 ---
-enum SchedAlgorithm { ALG_FCFS, ALG_RR, ALG_MLFQ };
-
-// --- 统计数据结构 ---
-struct SchedStats {
-    double avgTurnaroundTime;        // 平均周转时间
-    double avgWeightedTurnaroundTime;// 平均带权周转时间
+enum ProcessState {
+    NEW,        
+    READY,
+    RUNNING,
+    BLOCKED,
+    SUSPENDED,
+    FINISHED
 };
 
-enum ProcessState { READY, RUNNING, BLOCKED, FINISHED, SUSPENDED };
+enum SchedAlgorithm {
+    ALG_FCFS,
+    ALG_RR,
+    ALG_MLFQ
+};
 
-struct TCB {
-    int tid;            // 线程ID
-    std::string state;  // 状态
+struct Thread {
+    int tid;
+    std::string state;
 };
 
 struct PCB {
     std::string pid;
+    ProcessState state = NEW;
+
     int arrivalTime;
     int burstTime;
     int remainingTime;
-    ProcessState state;
-    int startTime = -1;
-    int finishTime = -1;
-    int priorityLevel;
     int memorySize;
-    std::vector<TCB> threads;  // 线程列表
-    int currentThreadIdx;      // 当前轮到哪个线程跑
-    
-    // 银行家算法相关
-    std::vector<int> maxResources;      
-    std::vector<int> allocatedResources;
-    std::vector<int> neededResources;   
 
-    PCB(std::string id, int arrival, int burst, int memSize = 0)
-        : pid(id), arrivalTime(arrival), burstTime(burst), remainingTime(burst), 
-          state(READY), priorityLevel(0), memorySize(memSize == 0 ? burst : memSize),
-          currentThreadIdx(0) {
-        threads.push_back({0, "READY"});
-        maxResources = {0, 0, 0};
-        allocatedResources = {0, 0, 0};
-        neededResources = {0, 0, 0};
-    }
+    int startTime  = -1;
+    int finishTime = -1;
+
+    int priorityLevel = 0;
+
+    std::vector<Thread> threads;
+    int currentThreadIdx = 0;
+
+    std::vector<int> maxResources{0,0,0};
+    std::vector<int> allocatedResources{0,0,0};
+    std::vector<int> neededResources{0,0,0};
+
+    PCB(const std::string& id, int arr, int burst, int mem)
+        : pid(id), arrivalTime(arr), burstTime(burst),
+          remainingTime(burst), memorySize(mem) {}
+};
+
+struct SchedStats {
+    double avgTurnaroundTime;
+    double avgWeightedTurnaroundTime;
 };
 
 class Scheduler {
 public:
     Scheduler();
-    
-    // --- 核心控制 ---
-    void createProcess(const std::string& pid, int arrivalTime, int burstTime, int memSize = 0);
-    void tick(); 
-    void reset(); // 重置状态
-    int getCurrentTime() const { return globalTime; }
+    ~Scheduler();                     
+
+    void tick();
     bool isAllFinished() const;
-    PCB* getRunningProcess() const { return runningProcess; }
-    
-    // --- 状态控制 ---
-    void blockCurrentProcess();
-    void wakeProcess(PCB* proc);
-    void suspendProcess(const std::string& pid);
-    void activateProcess(const std::string& pid);
-    
-    // --- 线程与查询 ---
+
+    // 进程 & 线程
+    void createProcess(const std::string& pid, int arrival, int burst, int memSize = 0);
     void createThread(const std::string& pid);
     PCB* getProcess(const std::string& pid);
-    const std::vector<PCB*>& getAllProcesses() const { return allProcesses; }
+    PCB* getRunningProcess() const { return runningProcess; }
 
-    // --- 银行家算法 ---
+    void suspendProcess(const std::string& pid);
+    void activateProcess(const std::string& pid);
+
+    // 算法
+    void setAlgorithm(SchedAlgorithm algo);
+    void reset();
+
+    // 统计
+    SchedStats calculateStats();
+    void runAutoComparison();
+
+    // 银行家
     void setSystemResources(int r1, int r2, int r3);
     bool setProcessMaxRes(PCB* proc, int r1, int r2, int r3);
     bool tryRequestResources(PCB* proc, int r1, int r2, int r3);
     void releaseResources(PCB* proc, int r1, int r2, int r3);
 
-    // --- 算法配置与分析 ---
-    void setAlgorithm(SchedAlgorithm algo); 
-    SchedStats calculateStats();
-    
-    // 自动化算法对比测试
-    // 在内部创建临时调度器实例，对比 FCFS/RR/MLFQ 的性能
-    void runAutoComparison();
+    // 同步 / 阻塞
+    void wakeProcess(PCB* proc);
+    void blockCurrentProcess();
 
 private:
-    std::vector<PCB*> allProcesses;     
-    std::vector<std::queue<PCB*>> multiLevelQueues;      
-    PCB* runningProcess;                
-    int globalTime;                     
-    const std::vector<int> TIME_SLICES = {1, 2, 4};                      
-    int currentSliceUsed;               
-
-    std::vector<int> availableResources;
-
-    bool checkSafety(const std::vector<int>& work, const std::vector<PCB*>& activeProcs);
-
-    // --- 当前算法模式 ---
-    SchedAlgorithm currentAlgorithm;
-
-    // --- 具体算法实现 ---
+    // 调度实现
     void tickFCFS();
     void tickRR();
     void tickMLFQ();
-};
 
-#endif // SCHEDULER_H
+    void checkArrivals();             
+
+    bool checkSafety(const std::vector<int>& work,
+                     const std::vector<PCB*>& procs);
+
+private:
+    std::vector<PCB*> allProcesses;
+    std::vector<std::queue<PCB*>> multiLevelQueues;
+
+    PCB* runningProcess = nullptr;
+
+    int globalTime = 0;
+    int currentSliceUsed = 0;
+    int nextArrivalIdx = 0;            
+
+    std::vector<int> availableResources{0,0,0};
+    SchedAlgorithm currentAlgorithm = ALG_MLFQ;
+};
