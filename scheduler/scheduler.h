@@ -56,31 +56,38 @@ class Scheduler {
 public:
     Scheduler();
     
+    // --- 核心控制 ---
     void createProcess(const std::string& pid, int arrivalTime, int burstTime, int memSize = 0);
     void tick(); 
+    void reset(); // 重置状态
     int getCurrentTime() const { return globalTime; }
     bool isAllFinished() const;
     PCB* getRunningProcess() const { return runningProcess; }
+    
+    // --- 状态控制 ---
     void blockCurrentProcess();
     void wakeProcess(PCB* proc);
+    void suspendProcess(const std::string& pid);
+    void activateProcess(const std::string& pid);
     
+    // --- 线程与查询 ---
+    void createThread(const std::string& pid);
+    PCB* getProcess(const std::string& pid);
     const std::vector<PCB*>& getAllProcesses() const { return allProcesses; }
 
-    // 银行家算法
+    // --- 银行家算法 ---
     void setSystemResources(int r1, int r2, int r3);
     bool setProcessMaxRes(PCB* proc, int r1, int r2, int r3);
     bool tryRequestResources(PCB* proc, int r1, int r2, int r3);
     void releaseResources(PCB* proc, int r1, int r2, int r3);
 
-    PCB* getProcess(const std::string& pid);
-    void suspendProcess(const std::string& pid);
-    void activateProcess(const std::string& pid);
-    void createThread(const std::string& pid);
-
-    // --- 对比分析相关接口 ---
-    void setAlgorithm(SchedAlgorithm algo); // 设置算法
-    SchedStats calculateStats();            // 计算统计结果
-    void reset();                           // 重置调度器状态（用于重新测试）
+    // --- 算法配置与分析 ---
+    void setAlgorithm(SchedAlgorithm algo); 
+    SchedStats calculateStats();
+    
+    // 自动化算法对比测试
+    // 在内部创建临时调度器实例，对比 FCFS/RR/MLFQ 的性能
+    void runAutoComparison();
 
 private:
     std::vector<PCB*> allProcesses;     

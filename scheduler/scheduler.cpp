@@ -274,6 +274,62 @@ SchedStats Scheduler::calculateStats() {
     return {totalTurnaround / count, totalWeighted / count};
 }
 
+// 自动化算法对比测试实现
+void Scheduler::runAutoComparison() {
+    std::cout << "\n================ ALGORITHM PERFORMANCE ANALYSIS ================\n";
+    std::cout << "[Test Workload]\n";
+    std::cout << "  P1: Arr=0, Burst=5\n";
+    std::cout << "  P2: Arr=1, Burst=3\n";
+    std::cout << "  P3: Arr=2, Burst=1\n";
+    std::cout << "  P4: Arr=3, Burst=7\n";
+    std::cout << "----------------------------------------------------------------\n";
+
+    // 定义要对比的算法
+    struct AlgoDef { SchedAlgorithm type; std::string name; };
+    std::vector<AlgoDef> algos = {
+        {ALG_FCFS, "FCFS (先来先服务)"},
+        {ALG_RR,   "RR (时间片轮转 q=2)"},
+        {ALG_MLFQ, "MLFQ (多级反馈队列)"}
+    };
+
+    std::cout << std::left << std::setw(20) << "Algorithm" 
+              << std::setw(20) << "Avg Turnaround" 
+              << std::setw(20) << "Avg Weighted" << "\n";
+    std::cout << "----------------------------------------------------------------\n";
+
+    for (auto& algo : algos) {
+        // 1. 创建临时的独立调度器实例 (不影响主程序状态)
+        Scheduler tempScheduler;
+        tempScheduler.setAlgorithm(algo.type);
+
+        // 2. 加载完全相同的测试数据
+        // 注意：为了测试纯粹性，这里不分配内存大小，仅测试 CPU 调度
+        tempScheduler.createProcess("P1", 0, 5);
+        tempScheduler.createProcess("P2", 1, 3);
+        tempScheduler.createProcess("P3", 2, 1);
+        tempScheduler.createProcess("P4", 3, 7);
+
+        // 3. 静默运行直到结束
+        // 为了不刷屏，我们假设 tick() 内部的 cout 是开启的，
+        // 实际演示时如果觉得太乱，可以暂时注释掉 tick() 里的 cout，
+        // 或者在这里通过重定向流来屏蔽输出。
+        // 这里我们直接运行，演示时可以看到不同算法的调度过程快速闪过。
+        while (!tempScheduler.isAllFinished()) {
+            tempScheduler.tick();
+        }
+
+        // 4. 计算并输出统计结果
+        SchedStats stats = tempScheduler.calculateStats();
+
+        std::cout << "RESULT: " 
+                  << std::left << std::setw(20) << algo.name 
+                  << std::setw(20) << std::fixed << std::setprecision(2) << stats.avgTurnaroundTime 
+                  << std::setw(20) << stats.avgWeightedTurnaroundTime << "\n";
+    }
+    std::cout << "================================================================\n";
+    std::cout << "Analysis Complete.\n";
+}
+
 void Scheduler::wakeProcess(PCB* proc) {
     if (proc && proc->state == BLOCKED) {
         proc->state = READY;

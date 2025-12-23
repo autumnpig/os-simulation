@@ -38,14 +38,14 @@ public:
     void saveToDisk(const std::string& realFileName) const;
     void loadFromDisk(const std::string& realFileName);
 
-    // 【新增】打印磁盘位图状态（用于展示块分配原理）
+    // 打印磁盘位图状态（用于展示块分配原理）
     void printDiskStatus() const;
 
 private:
     int totalCapacity;
     std::map<std::string, FileNode> fileSystem; 
 
-    // 【新增】位示图：记录哪些块被占用了 (true=占用, false=空闲)
+    // 位示图：记录哪些块被占用了 (true=占用, false=空闲)
     bool blockBitmap[TOTAL_BLOCKS];
 
     // 辅助：分配块
