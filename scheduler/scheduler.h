@@ -1,6 +1,6 @@
 #pragma once
 #include <vector>
-#include <queue>
+#include <deque>   // 【修改】改为 deque 以支持 FCFS/RR 的队列操作
 #include <string>
 
 enum ProcessState {
@@ -14,8 +14,8 @@ enum ProcessState {
 
 enum SchedAlgorithm {
     ALG_FCFS,
-    ALG_RR,
-    ALG_MLFQ
+    ALG_RR
+    // ALG_MLFQ // 【删除】不再需要
 };
 
 struct Thread {
@@ -25,33 +25,23 @@ struct Thread {
 
 struct PCB {
     std::string pid;
-    ProcessState state = NEW;
-
     int arrivalTime;
     int burstTime;
     int remainingTime;
-    int memorySize;
-
-    int startTime  = -1;
-    int finishTime = -1;
-
-    int priorityLevel = 0;
-
+    int startTime;
+    int finishTime;
+    ProcessState state;
+    
+    // 兼容 .cpp 所需的字段
+    int memSize; 
     std::vector<Thread> threads;
-    int currentThreadIdx = 0;
+    std::vector<int> maxResources;
+    std::vector<int> allocatedResources;
+    std::vector<int> neededResources;
 
-    std::vector<int> maxResources{0,0,0};
-    std::vector<int> allocatedResources{0,0,0};
-    std::vector<int> neededResources{0,0,0};
-
-    PCB(const std::string& id, int arr, int burst, int mem)
-        : pid(id), arrivalTime(arr), burstTime(burst),
-          remainingTime(burst), memorySize(mem) {}
-};
-
-struct SchedStats {
-    double avgTurnaroundTime;
-    double avgWeightedTurnaroundTime;
+    PCB(std::string id, int arr, int burst) 
+        : pid(id), arrivalTime(arr), burstTime(burst), remainingTime(burst), 
+          startTime(-1), finishTime(-1), state(NEW), memSize(0) {}
 };
 
 class Scheduler {
@@ -67,17 +57,19 @@ public:
     void createThread(const std::string& pid);
     PCB* getProcess(const std::string& pid);
     PCB* getRunningProcess() const { return runningProcess; }
+    const std::vector<PCB*>& getAllProcesses() const { return allProcesses; }
+    int getCurrentTime() const { return globalTime; }
 
     void suspendProcess(const std::string& pid);
     void activateProcess(const std::string& pid);
 
     // 算法
     void setAlgorithm(SchedAlgorithm algo);
-    void reset();
-
-    // 统计
-    SchedStats calculateStats();
-    void runAutoComparison();
+    
+    // 【删除】reset, calculateStats 等未实现的函数，防止链接错误
+    // void reset();
+    // SchedStats calculateStats();
+    // void runAutoComparison();
 
     // 银行家
     void setSystemResources(int r1, int r2, int r3);
@@ -93,16 +85,17 @@ private:
     // 调度实现
     void tickFCFS();
     void tickRR();
-    void tickMLFQ();
+    // void tickMLFQ(); // 【删除】
 
-    void checkArrivals();             
+    void checkArrivals();            
 
-    bool checkSafety(const std::vector<int>& work,
-                     const std::vector<PCB*>& procs);
+    // bool checkSafety(...); // 【删除】简易版未使用
 
 private:
     std::vector<PCB*> allProcesses;
-    std::vector<std::queue<PCB*>> multiLevelQueues;
+    
+    // 【关键修改】替换为单就绪队列，匹配 .cpp 中的 readyQueue
+    std::deque<PCB*> readyQueue; 
 
     PCB* runningProcess = nullptr;
 
@@ -111,5 +104,5 @@ private:
     int nextArrivalIdx = 0;            
 
     std::vector<int> availableResources{0,0,0};
-    SchedAlgorithm currentAlgorithm = ALG_MLFQ;
+    SchedAlgorithm currentAlgorithm = ALG_FCFS; // 默认改为 FCFS
 };
