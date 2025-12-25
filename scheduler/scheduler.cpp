@@ -117,9 +117,13 @@ void Scheduler::tickFCFS() {
             runningProcess->state = FINISHED;
             runningProcess->finishTime = globalTime + 1;
 
-            std::cout << "[Time " << globalTime + 1 << "] "
-                      << runningProcess->pid << " finished\n";
+            releaseResources(runningProcess, 
+                     runningProcess->allocatedResources[0],
+                     runningProcess->allocatedResources[1],
+                     runningProcess->allocatedResources[2]);
 
+            std::cout << "[System] Process " << runningProcess->pid << " finished.\n";
+    
             runningProcess = nullptr;
         }
     }
@@ -152,6 +156,11 @@ void Scheduler::tickRR() {
         if (runningProcess->remainingTime <= 0) {
             runningProcess->state = FINISHED;
             runningProcess->finishTime = globalTime + 1;
+
+            releaseResources(runningProcess, 
+                     runningProcess->allocatedResources[0],
+                     runningProcess->allocatedResources[1],
+                     runningProcess->allocatedResources[2]);
 
             std::cout << "[Time " << globalTime + 1 << "] "
                       << runningProcess->pid << " finished\n";
