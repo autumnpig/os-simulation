@@ -2,11 +2,7 @@
 #include <iostream>
 #include <algorithm>
 
-// 移除不再需要的 MLFQ 时间片数组
-// static const int TIME_SLICES[3] = {2, 4, 8}; 
-
 Scheduler::Scheduler() {
-    // 必须初始化这些变量，否则会崩溃
     globalTime = 0;
     nextArrivalIdx = 0;
     runningProcess = nullptr;
@@ -29,14 +25,12 @@ void Scheduler::setAlgorithm(SchedAlgorithm algo) {
 
 // 注意：请确保头文件 scheduler.h 中的 createProcess 声明与这里参数一致
 void Scheduler::createProcess(const std::string& pid, int arrival, int burst, int memSize) {
-    // 请确保 PCB 构造函数支持 memSize，或者在这里单独赋值
     PCB* p = new PCB(pid, arrival, burst); 
-    p->memSize = memSize; // 如果构造函数没加 memSize，需手动赋值
+    p->memSize = memSize; 
     p->state = NEW;       
 
     allProcesses.push_back(p);
 
-    // 按到达时间排序，方便 checkArrivals 处理
     std::sort(allProcesses.begin(), allProcesses.end(),
         [](PCB* a, PCB* b) {
             return a->arrivalTime < b->arrivalTime;
@@ -70,7 +64,7 @@ void Scheduler::createThread(const std::string& pid) {
 void Scheduler::checkArrivals() {
     // 遍历所有尚未到达的进程
     while (nextArrivalIdx < allProcesses.size() &&
-           allProcesses[nextArrivalIdx]->arrivalTime <= globalTime) { // 改为 <= 更稳健
+           allProcesses[nextArrivalIdx]->arrivalTime <= globalTime) {
 
         PCB* p = allProcesses[nextArrivalIdx++];
         if (p->state == NEW) {

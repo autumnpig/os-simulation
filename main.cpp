@@ -13,7 +13,7 @@
 #include "storage/storage.h"
 #include "ipc/ipc.h"
 
-// 状态转字符串（用于打印）
+// 状态转字符串
 std::string stateToString(ProcessState s) {
     switch (s) {
         case NEW:       return "NEW";
@@ -26,8 +26,7 @@ std::string stateToString(ProcessState s) {
     }
 }
 
-// === 核心功能：打印系统当前详细状态（答辩神器） ===
-// 替换 main.cpp 中的 printSystemStatus
+// === 核心功能：打印系统当前详细状态 ===
 void printSystemStatus(Scheduler& scheduler, const std::map<std::string, int*>& memMap) {
     const auto& procs = scheduler.getAllProcesses();
     std::cout << "\n===== System Status (Time: " << scheduler.getCurrentTime() << ") =====\n";
@@ -63,6 +62,13 @@ void printSystemStatus(Scheduler& scheduler, const std::map<std::string, int*>& 
         if (p->state == BLOCKED) std::cout << "(Waiting)";
         if (p->state == READY)   std::cout << "(In Queue)";
         std::cout << "\n";
+
+        if (!p->threads.empty() && p->state != FINISHED) {
+            for (const auto& t : p->threads) {
+                std::cout << "  |__ [Thread " << t.tid << "] " 
+                          << "State: " << t.state << "\n";
+            }
+        }
     }
     std::cout << "==========================================================\n";
 }
@@ -77,6 +83,25 @@ void garbageCollection(Scheduler& scheduler, std::map<std::string, int*>& memMap
             // std::cout << "[GC] Process " << p->pid << " memory freed.\n"; // 嫌吵可以注释掉
         }
     }
+}
+
+bool checkSystemStalled(Scheduler& scheduler) {
+    // 1. 如果所有进程都跑完了，不算僵死，算正常结束
+    if (scheduler.isAllFinished()) return false;
+
+    // 2. 检查是否有任何 "能动" 的进程
+    const auto& procs = scheduler.getAllProcesses();
+    bool hasActiveProcess = false;
+    for (auto p : procs) {
+        // 只要有一个进程是 NEW, READY 或 RUNNING，系统就是健康的
+        if (p->state == NEW || p->state == READY || p->state == RUNNING) {
+            hasActiveProcess = true;
+            break;
+        }
+    }
+
+    // 3. 如果没有活跃进程，说明所有未完成的任务都被阻塞了
+    return !hasActiveProcess; 
 }
 
 void printHelp() {
@@ -134,7 +159,7 @@ void printHelp() {
 int main() {
     // 1. 初始化各模块
     Scheduler osScheduler;
-    MemoryManager mm(1024, 32, 16);
+    MemoryManager mm(1024, 32, 4);
     StorageManager disk(1024);
     IPCManager ipc;
     Semaphore globalMutex(1); // 演示同步用
@@ -172,12 +197,30 @@ int main() {
         else if (cmd == "step") {
             osScheduler.tick();
             printSystemStatus(osScheduler, processMemoryMap);
+            if (checkSystemStalled(osScheduler)) {
+                std::cout << "\n[Warning] System Stalled! All processes are BLOCKED/SUSPENDED.\n"
+                          << "Hint: Use 'wake <pid>' or 'unlock' to resume execution.\n";
+            }
         }
         else if (cmd == "run") {
             std::cout << "Running until all finished...\n";
+            int max_ticks = 1000; // 防止纯逻辑死循环的保险丝
+            int ticks = 0;
+
             while (!osScheduler.isAllFinished()) {
+                // 先检查是否僵死
+                if (checkSystemStalled(osScheduler)) {
+                     std::cout << "\n[System Stop] Deadlock detected! Stopping auto-run.\n";
+                     break; // 强制退出循环，把控制权还给用户
+                }
+
                 osScheduler.tick();
-                // run 模式下不每一步都打印，防止刷屏，只打印关键事件（在 Scheduler 内部 cout）
+                ticks++;
+
+                if (ticks > max_ticks) {
+                    std::cout << "\n[System Stop] Time limit exceeded (1000 ticks).\n";
+                    break;
+                }
             }
             printSystemStatus(osScheduler, processMemoryMap);
         }
