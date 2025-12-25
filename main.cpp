@@ -108,10 +108,12 @@ void printHelp() {
     std::cout << " res_init <A> <B> <C>: Set system total resources\n";
     std::cout << " res_max <p> <A><B><C>: Set Max need for process\n";
     std::cout << " req <p> <A> <B> <C>  : Request resources\n";
-    
+
     // 4. 内存管理模块
-    std::cout << "\n[ Memory Management ]\n";
-    std::cout << " mem <size>      : Allocate memory block (Test)\n";
+    std::cout << "\n[ Memory Simulation ]\n";
+    std::cout << " mem <size>      : Allocate contiguous memory (Partition)\n";
+    std::cout << " access <p> [w]  : Access virtual page <p> (w=write mode)\n";
+    std::cout << " mem_stat        : Show detailed memory status\n";
 
     // 5. 文件系统模块
     std::cout << "\n[ File System ]\n";
@@ -287,7 +289,25 @@ int main() {
         else if (cmd == "mem") {
             int size; ss >> size;
             mm.allocateMemory(size);
+            // 顺便打印一下状态
+            // mm.printStatus(); 
         }
+        else if (cmd == "mem_stat") {
+            mm.printStatus();
+        }
+        else if (cmd == "access") {
+            // 演示页面置换的核心指令
+            int page;
+            std::string mode;
+            if (ss >> page) {
+                bool write = false;
+                if (ss >> mode && mode == "w") write = true;
+                mm.accessPage(page, write);
+            } else {
+                std::cout << "Usage: access <page_id> [w]\n";
+            }
+        }
+        
         else if (cmd == "touch") {
             std::string name; int size;
             if (ss >> name >> size) disk.createFile(name, size);

@@ -8,13 +8,8 @@ MemoryManager::MemoryManager(int totalSize, int pageSize, int maxFrames)
     : totalSize(totalSize),
       pageSize(pageSize),
       maxFrames(maxFrames) {
-
-    freeList.push_back({1, totalSize});
-
-    // 逻辑文件区：0~9 页
-    for (int i = 0; i < 10; ++i) {
-        fileArea.insert(i);
-    }
+    freeList.push_back({1, totalSize}); // 起始地址设为1，避免 nullptr
+    for (int i = 0; i < 10; ++i) fileArea.insert(i);
 }
 
 /* ================= 连续分区管理 ================= */
@@ -70,81 +65,104 @@ void MemoryManager::freeMemory(int* ptr) {
     std::cout << "Free memory at " << addr << std::endl;
 }
 
-/* ================= Swap / 文件区 ================= */
-
-void MemoryManager::swapOut(int page) {
-    PageTableEntry& pte = pageTable.at(page);
-
-    if (pte.fileBacked) {
-        if (pte.dirty) {
-            std::cout << "Write back dirty file page " << page << std::endl;
-        } else {
-            std::cout << "Discard clean file page " << page << std::endl;
-        }
-    } else {
-        std::cout << "Swap out anonymous page " << page << std::endl;
-        swapArea.insert(page);
-        pte.inSwap = true;
-    }
-
-    pte.present = false;
-    pte.dirty = false;
-    lruList.remove(page);
-}
-
-void MemoryManager::swapIn(int page) {
-    if (lruList.size() >= static_cast<size_t>(maxFrames)) {
-        int victim = lruList.back();
-        lruList.pop_back();
-        swapOut(victim);
-    }
-
-    PageTableEntry& pte = pageTable.at(page);
-    pte.frame = static_cast<int>(lruList.size());
-    pte.present = true;
-    pte.inSwap = false;
-
-    if (pte.fileBacked) {
-        std::cout << "Load page " << page << " from file area" << std::endl;
-    } else if (swapArea.count(page) != 0U) {
-        std::cout << "Load page " << page << " from swap area" << std::endl;
-        swapArea.erase(page);
-    } else {
-        std::cout << "Allocate new anonymous page " << page << std::endl;
-    }
-
-    lruList.push_front(page);
-}
-
-/* ================= Unix 风格缺页处理 ================= */
+/* ================= 虚拟存储与页面置换 ================= */
 
 void MemoryManager::accessPage(int page, bool write) {
+    std::cout << "\n[MMU] Request access page: " << page << (write ? " (Write)" : " (Read)") << "\n";
+
     if (pageTable.count(page) == 0U) {
-        pageTable.emplace(
-            page,
-            PageTableEntry{
-                -1,
-                false,
-                false,
-                fileArea.count(page) != 0U,
-                false
-            }
-        );
+        // 首次访问，初始化页表项
+        pageTable.emplace(page, PageTableEntry{-1, false, false, fileArea.count(page) != 0U, false});
     }
 
     PageTableEntry& pte = pageTable.at(page);
 
     if (pte.present) {
-        std::cout << "Access page " << page << " (hit)" << std::endl;
+        std::cout << "  -> HIT: Page " << page << " is in Frame " << pte.frame << "\n";
+        // LRU 更新：移到队头
         lruList.remove(page);
         lruList.push_front(page);
     } else {
-        std::cout << "Page fault on page " << page << std::endl;
+        std::cout << "  -> MISS: Page Fault! Page " << page << " not in memory.\n";
         swapIn(page);
     }
 
     if (write) {
         pte.dirty = true;
-        std::cout << "Page " << page << " marked dirty" << std::endl;
+        std::cout << "  -> Mark Page " << page << " as DIRTY.\n";
     }
+}
+
+void MemoryManager::swapIn(int page) {
+    // 1. 检查物理帧是否已满
+    if (lruList.size() >= static_cast<size_t>(maxFrames)) {
+        // 淘汰 LRU 链表尾部（最久未使用的）
+        int victim = lruList.back();
+        lruList.pop_back();
+        std::cout << "  -> [Replace] Memory full (" << maxFrames << " frames). Selecting victim: Page " << victim << "\n";
+        swapOut(victim);
+    }
+
+    // 2. 调入新页
+    PageTableEntry& pte = pageTable.at(page);
+    pte.frame = static_cast<int>(lruList.size()); // 简单模拟帧号
+    pte.present = true;
+    pte.inSwap = false;
+
+    // 3. 加入 LRU 队头
+    lruList.push_front(page);
+
+    if (pte.fileBacked) {
+        std::cout << "  -> [IO] Loaded Page " << page << " from File System.\n";
+    } else if (swapArea.count(page)) {
+        std::cout << "  -> [IO] Loaded Page " << page << " from Swap Area.\n";
+        swapArea.erase(page);
+    } else {
+        std::cout << "  -> [Alloc] Zero-filled new Page " << page << ".\n";
+    }
+}
+
+void MemoryManager::swapOut(int page) {
+    PageTableEntry& pte = pageTable.at(page);
+    pte.present = false;
+
+    if (pte.fileBacked) {
+        if (pte.dirty) std::cout << "  -> [IO] Write back dirty Page " << page << " to File.\n";
+        else std::cout << "  -> [Drop] Page " << page << " is clean (file-backed), simply drop.\n";
+    } else {
+        std::cout << "  -> [Swap] Swapped out Page " << page << " to Swap Area.\n";
+        swapArea.insert(page);
+        pte.inSwap = true;
+    }
+    pte.dirty = false;
+}
+
+// 可视化状态打印
+void MemoryManager::printStatus() const {
+    std::cout << "\n===== Memory Manager Status =====\n";
+    
+    // 1. 连续分配状态 (用于 exec/process loading)
+    std::cout << "[Partitions (Continuous Alloc)] Total: " << totalSize << "\n";
+    std::cout << "  Used Blocks:\n";
+    if (usedBlocks.empty()) std::cout << "    (None)\n";
+    for (auto& pair : usedBlocks) {
+        std::cout << "    | Start: " << std::setw(4) << pair.second.start 
+                  << " | Size: " << std::setw(4) << pair.second.size << " |\n";
+    }
+    
+    // 2. 分页状态 (用于 access page demo)
+    std::cout << "\n[Paging System (LRU)] Frames Used: " << lruList.size() << "/" << maxFrames << "\n";
+    std::cout << "  Physical Frames (LRU Order: Most Recent -> Least Recent):\n  ";
+    if (lruList.empty()) std::cout << "(Empty)";
+    for (int page : lruList) {
+        std::cout << "[Page " << page << "]";
+        if (pageTable.at(page).dirty) std::cout << "*"; // 脏页标记
+        std::cout << " -> ";
+    }
+    std::cout << "END\n";
+
+    std::cout << "  Swap Area: { ";
+    for (int p : swapArea) std::cout << p << " ";
+    std::cout << "}\n";
+    std::cout << "=================================\n";
 }

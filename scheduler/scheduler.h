@@ -1,10 +1,12 @@
 #pragma once
+
 #include <vector>
-#include <deque>   // 【修改】改为 deque 以支持 FCFS/RR 的队列操作
+#include <deque>
 #include <string>
 
+// 进程状态枚举
 enum ProcessState {
-    NEW,        
+    NEW,
     READY,
     RUNNING,
     BLOCKED,
@@ -12,17 +14,19 @@ enum ProcessState {
     FINISHED
 };
 
+// 调度算法枚举
 enum SchedAlgorithm {
     ALG_FCFS,
     ALG_RR
-    // ALG_MLFQ // 【删除】不再需要
 };
 
+// 线程结构体
 struct Thread {
     int tid;
     std::string state;
 };
 
+// 进程控制块 (Process Control Block)
 struct PCB {
     std::string pid;
     int arrivalTime;
@@ -32,16 +36,23 @@ struct PCB {
     int finishTime;
     ProcessState state;
     
-    // 兼容 .cpp 所需的字段
+    // 扩展字段
     int memSize; 
     std::vector<Thread> threads;
+    
+    // 银行家算法资源向量
     std::vector<int> maxResources;
     std::vector<int> allocatedResources;
     std::vector<int> neededResources;
 
+    // 构造函数：初始化所有字段，防止 vector 访问越界
     PCB(std::string id, int arr, int burst) 
         : pid(id), arrivalTime(arr), burstTime(burst), remainingTime(burst), 
-          startTime(-1), finishTime(-1), state(NEW), memSize(0) {}
+          startTime(-1), finishTime(-1), state(NEW), memSize(0),
+          maxResources({0, 0, 0}),        // 默认初始化为 0
+          allocatedResources({0, 0, 0}),  // 默认初始化为 0
+          neededResources({0, 0, 0})      // 默认初始化为 0
+    {}
 };
 
 class Scheduler {
@@ -49,12 +60,14 @@ public:
     Scheduler();
     ~Scheduler();                     
 
+    // 核心调度驱动
     void tick();
     bool isAllFinished() const;
 
-    // 进程 & 线程
+    // --- 进程与线程管理 ---
     void createProcess(const std::string& pid, int arrival, int burst, int memSize = 0);
     void createThread(const std::string& pid);
+    
     PCB* getProcess(const std::string& pid);
     PCB* getRunningProcess() const { return runningProcess; }
     const std::vector<PCB*>& getAllProcesses() const { return allProcesses; }
@@ -63,39 +76,39 @@ public:
     void suspendProcess(const std::string& pid);
     void activateProcess(const std::string& pid);
 
-    // 算法
+    // --- 调度算法配置 ---
     void setAlgorithm(SchedAlgorithm algo);
 
-    // 银行家
+    // --- 银行家算法 (死锁避免) ---
     void setSystemResources(int r1, int r2, int r3);
     bool setProcessMaxRes(PCB* proc, int r1, int r2, int r3);
     bool tryRequestResources(PCB* proc, int r1, int r2, int r3);
     void releaseResources(PCB* proc, int r1, int r2, int r3);
 
-    // 同步 / 阻塞
+    // --- 同步与阻塞 ---
     void wakeProcess(PCB* proc);
     void blockCurrentProcess();
 
 private:
-    // 调度实现
+    // 调度算法具体实现
     void tickFCFS();
     void tickRR();
 
+    // 检查新到达的进程
     void checkArrivals();            
 
+    // 银行家算法安全性检查
     bool checkSafety(const std::vector<int>& work, const std::vector<PCB*>& procs);
 
 private:
-    std::vector<PCB*> allProcesses;
-    
-    std::deque<PCB*> readyQueue; 
-
-    PCB* runningProcess = nullptr;
+    std::vector<PCB*> allProcesses;     // 所有进程列表
+    std::deque<PCB*> readyQueue;        // 就绪队列 (使用 deque 支持头部插入等操作)
+    PCB* runningProcess = nullptr;      // 当前正在运行的进程
 
     int globalTime = 0;
     int currentSliceUsed = 0;
     int nextArrivalIdx = 0;            
 
-    std::vector<int> availableResources{0,0,0};
-    SchedAlgorithm currentAlgorithm = ALG_FCFS; // 默认改为 FCFS
+    std::vector<int> availableResources{0, 0, 0}; // 系统当前可用资源
+    SchedAlgorithm currentAlgorithm = ALG_FCFS;   // 默认调度算法
 };
