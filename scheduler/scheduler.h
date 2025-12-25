@@ -65,11 +65,6 @@ public:
 
     // 算法
     void setAlgorithm(SchedAlgorithm algo);
-    
-    // 【删除】reset, calculateStats 等未实现的函数，防止链接错误
-    // void reset();
-    // SchedStats calculateStats();
-    // void runAutoComparison();
 
     // 银行家
     void setSystemResources(int r1, int r2, int r3);
@@ -85,16 +80,14 @@ private:
     // 调度实现
     void tickFCFS();
     void tickRR();
-    // void tickMLFQ(); // 【删除】
 
     void checkArrivals();            
 
-    // bool checkSafety(...); // 【删除】简易版未使用
+    bool checkSafety(const std::vector<int>& work, const std::vector<PCB*>& procs);
 
 private:
     std::vector<PCB*> allProcesses;
     
-    // 【关键修改】替换为单就绪队列，匹配 .cpp 中的 readyQueue
     std::deque<PCB*> readyQueue; 
 
     PCB* runningProcess = nullptr;

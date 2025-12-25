@@ -6,297 +6,338 @@
 #include <limits>
 #include <sstream>
 
-// 各模块头文件
+// 请确保这些头文件都在对应的文件夹里
 #include "scheduler/scheduler.h"
 #include "memory_manager/memory_manager.h"
 #include "sync/semaphore.h"
 #include "storage/storage.h"
 #include "ipc/ipc.h"
 
-// 状态转字符串
+// 状态转字符串（用于打印）
 std::string stateToString(ProcessState s) {
     switch (s) {
-        case READY: return "READY";
-        case RUNNING: return "RUNNING";
-        case BLOCKED: return "BLOCKED";
-        case FINISHED: return "FINISHED";
+        case NEW:       return "NEW";
+        case READY:     return "READY";
+        case RUNNING:   return "RUNNING";
+        case BLOCKED:   return "BLOCKED";
+        case FINISHED:  return "FINISHED";
         case SUSPENDED: return "SUSPENDED";
-        default: return "UNKNOWN";
+        default:        return "UNKNOWN";
     }
 }
 
-// 垃圾回收
+// === 核心功能：打印系统当前详细状态（答辩神器） ===
+// 替换 main.cpp 中的 printSystemStatus
+void printSystemStatus(Scheduler& scheduler, const std::map<std::string, int*>& memMap) {
+    const auto& procs = scheduler.getAllProcesses();
+    std::cout << "\n===== System Status (Time: " << scheduler.getCurrentTime() << ") =====\n";
+    
+    // 增加了一列 "Thr" (线程数)
+    std::cout << std::left 
+              << std::setw(8) << "PID" 
+              << std::setw(12) << "State" 
+              << std::setw(5) << "Thr" 
+              << std::setw(8) << "RemTime" 
+              << std::setw(10) << "Memory"
+              << "Info" << "\n";
+    std::cout << "----------------------------------------------------------\n";
+    
+    if (procs.empty()) {
+        std::cout << "(No processes)\n";
+    }
+
+    for (auto p : procs) {
+        std::string memInfo = "None";
+        if (memMap.count(p->pid)) memInfo = "Allocated";
+        else if (p->state == FINISHED) memInfo = "Freed";
+        else if (p->state == SUSPENDED) memInfo = "Swapped";
+
+        std::cout << std::left 
+                  << std::setw(8) << p->pid 
+                  << std::setw(12) << stateToString(p->state) 
+                  << std::setw(5) << p->threads.size() 
+                  << std::setw(8) << p->remainingTime
+                  << std::setw(10) << memInfo;
+        
+        if (p->state == RUNNING) std::cout << "<-- CPU Running";
+        if (p->state == BLOCKED) std::cout << "(Waiting)";
+        if (p->state == READY)   std::cout << "(In Queue)";
+        std::cout << "\n";
+    }
+    std::cout << "==========================================================\n";
+}
+
+// 垃圾回收：清理已完成进程的内存
 void garbageCollection(Scheduler& scheduler, std::map<std::string, int*>& memMap, MemoryManager& mm) {
     const auto& procs = scheduler.getAllProcesses();
     for (auto p : procs) {
         if (p->state == FINISHED && memMap.count(p->pid)) {
             mm.freeMemory(memMap[p->pid]);
             memMap.erase(p->pid);
-            std::cout << "[GC] Process " << p->pid << " memory freed.\n";
+            // std::cout << "[GC] Process " << p->pid << " memory freed.\n"; // 嫌吵可以注释掉
         }
     }
 }
 
-
-// 帮助菜单（只打印一次）
 void printHelp() {
     std::cout << "\n========== OS Simulation Shell ==========\n";
-    std::cout << "[ Basic Control ]\n";
-    std::cout << " 1. step      : Run 1 tick\n";
-    std::cout << " 2. run       : Run until finish\n";
-    std::cout << " 0. exit      : Exit system\n\n";
+    
+    // 1. 系统运行控制
+    std::cout << "[ Execution Control ]\n";
+    std::cout << " step (or Enter) : Run 1 tick\n";
+    std::cout << " run             : Run until all finished\n";
+    std::cout << " switch <1/2>    : Switch Algo (1=FCFS, 2=RR)\n";
+    std::cout << " exit            : Exit system\n";
 
-    std::cout << "[ --------- Process ---------]\n";
-    std::cout << " 3. add       : add <pid> <arr> <burst>\n";
-    std::cout << " 4. ps        : Show process table\n";
-    std::cout << " 5. thread    : thread <pid>\n";
-    std::cout << " 6. suspend   : suspend <pid>\n";
-    std::cout << " 7. activate  : activate <pid>\n\n";
+    // 2. 进程管理与状态演示（核心）
+    std::cout << "\n[ Process Management ]\n";
+    std::cout << " add <pid> <arr> <burst> : Create process manually\n";
+    std::cout << " ps              : Show detailed process status\n";
+    std::cout << " block           : Block current RUNNING process\n";
+    std::cout << " wake <pid>      : Wake up a BLOCKED process\n";
+    std::cout << " suspend <pid>   : Suspend process (Swap out)\n";
+    std::cout << " active <pid>    : Activate process (Swap in)\n";
+    std::cout << " thread <pid>    : Create a thread for process\n";
 
-    std::cout << "[ --------- Memory ---------]\n";
-    std::cout << " 8. mem       : mem <size>\n";
-    std::cout << " 9. access    : access <page> <0/1>\n\n";
+    // 3. 同步与互斥演示模块
+    std::cout << "\n[ Sync & Mutex ]\n";
+    std::cout << " lock            : Current process tries to acquire lock (P)\n";
+    std::cout << " unlock          : Release lock (V)\n";
 
-    std::cout << "[ --------- File System ---------]\n";
-    std::cout << "10. touch     : touch <name> <size>\n";
-    std::cout << "11. rm        : rm <name>\n";
-    std::cout << "12. ls        : list files\n";
-    std::cout << "13. exec      : exec <filename>\n\n";
+    std::cout << "\n[ Banker's Algorithm ]\n";
+    std::cout << " res_init <A> <B> <C>: Set system total resources\n";
+    std::cout << " res_max <p> <A><B><C>: Set Max need for process\n";
+    std::cout << " req <p> <A> <B> <C>  : Request resources\n";
+    
+    // 4. 内存管理模块
+    std::cout << "\n[ Memory Management ]\n";
+    std::cout << " mem <size>      : Allocate memory block (Test)\n";
 
-    std::cout << "[ --------- IPC ---------]\n";
-    std::cout << "20. send      : send <pid> <msg>\n";
-    std::cout << "21. recv      : recv\n";
-    std::cout << "22. ipcs      : ipc status\n\n";
+    // 5. 文件系统模块
+    std::cout << "\n[ File System ]\n";
+    std::cout << " touch <n> <s>   : Create file (name, size)\n";
+    std::cout << " ls              : List all files\n";
+    std::cout << " rm <name>       : Delete file\n";
+    std::cout << " exec <name>     : Load file & create process\n";
 
-    std::cout << "Type 'help' to show this menu again.\n";
+    // 6. 进程通信模块
+    std::cout << "\n[ IPC (Inter-Process Com) ]\n";
+    std::cout << " send <pid> <msg>: Send message to process\n";
+    std::cout << " recv            : Receive message (Current Process)\n";
+    std::cout << " ipcs            : Show IPC status\n";
+
     std::cout << "=========================================\n";
 }
 
-void selectAlgorithmAtRun(Scheduler& scheduler) {
-    std::cout << "\nChoose scheduling algorithm:\n";
-    std::cout << "1. FCFS\n";
-    std::cout << "2. Round Robin\n";
-    std::cout << "Input choice: ";
-
-    int choice = 1; // 默认值
-    std::string input;
-    
-    // 读取一行输入
-    if (std::getline(std::cin, input) && !input.empty()) {
-        try {
-            choice = std::stoi(input); 
-        } catch (...) {
-            choice = 1; 
-        }
-    }
-
-    switch (choice) {
-    case 1:
-        scheduler.setAlgorithm(ALG_FCFS);
-        std::cout << "Algorithm set to FCFS\n";
-        break;
-    case 2:
-        scheduler.setAlgorithm(ALG_RR);
-        std::cout << "Algorithm set to Round Robin\n";
-        break;
-    default:
-        std::cout << "Invalid input, default to FCFS\n";
-        scheduler.setAlgorithm(ALG_FCFS);
-    }
-}
-
-
 int main() {
-
+    // 1. 初始化各模块
     Scheduler osScheduler;
-    Semaphore globalMutex(1);
+    MemoryManager mm(1024, 32, 16);
     StorageManager disk(1024);
     IPCManager ipc;
-    MemoryManager mm(1024, 32, 16);
+    Semaphore globalMutex(1); // 演示同步用
 
-//    disk.loadFromDisk("os_disk.data");
-    osScheduler.setSystemResources(10, 5, 7);
+    std::map<std::string, int*> processMemoryMap; 
 
-    std::map<std::string, int*> processMemoryMap;
-
-    // 菜单只显示一次
     printHelp();
 
     while (true) {
+        // 自动垃圾回收
         garbageCollection(osScheduler, processMemoryMap, mm);
 
         std::cout << "\ncmd> ";
-
         std::string line;
-        if (!std::getline(std::cin, line)) {
-            std::cout << "\n[System] Input stream closed.\n";
-            break;
+        if (!std::getline(std::cin, line)) break;
+
+        // --- 空行默认是 step (方便连按回车演示) ---
+        if (line.empty()) {
+            osScheduler.tick();
+            printSystemStatus(osScheduler, processMemoryMap);
+            continue;
         }
 
-        if (line.empty()) continue;
-
-        std::istringstream iss(line);
+        std::stringstream ss(line);
         std::string cmd;
-        iss >> cmd;
+        ss >> cmd;
 
-        // ===== 基础控制 =====
-        if (cmd == "exit" || cmd == "0") {
-            disk.saveToDisk("os_disk.data");
-            std::cout << "System shutting down...\n";
+        // ===== 1. 系统控制 =====
+        if (cmd == "exit") {
             break;
         }
-        else if (cmd == "help" || cmd == "?") {
+        else if (cmd == "help") {
             printHelp();
         }
-        else if (cmd == "step" || cmd == "1") {
+        else if (cmd == "step") {
             osScheduler.tick();
+            printSystemStatus(osScheduler, processMemoryMap);
         }
-        else if (cmd == "run" || cmd == "2") {
-            selectAlgorithmAtRun(osScheduler);
-
-        std::cout << "\nSystem running...\n";
-
-        while (!osScheduler.isAllFinished()) {
-            osScheduler.tick();
+        else if (cmd == "run") {
+            std::cout << "Running until all finished...\n";
+            while (!osScheduler.isAllFinished()) {
+                osScheduler.tick();
+                // run 模式下不每一步都打印，防止刷屏，只打印关键事件（在 Scheduler 内部 cout）
+            }
+            printSystemStatus(osScheduler, processMemoryMap);
         }
-        std::cout << "All processes finished.\n";
+        else if (cmd == "switch") {
+            int type = 1;
+            ss >> type;
+            if (type == 2) {
+                osScheduler.setAlgorithm(ALG_RR);
+                std::cout << "[System] Switched to Round Robin (Slice=2)\n";
+            } else {
+                osScheduler.setAlgorithm(ALG_FCFS);
+                std::cout << "[System] Switched to FCFS\n";
+            }
         }
 
-
-        // ===== 进程管理 =====
-        else if (cmd == "add" || cmd == "3") {
+        // ===== 2. 进程状态演示 (答辩核心) =====
+        else if (cmd == "add") {
+            std::string pid; int arr, burst;
+            if (ss >> pid >> arr >> burst) {
+                osScheduler.createProcess(pid, arr, burst, 0); // 0 is default mem
+            } else {
+                std::cout << "Usage: add <pid> <arr> <burst>\n";
+            }
+        }
+        else if (cmd == "ps") {
+            printSystemStatus(osScheduler, processMemoryMap);
+        }
+        else if (cmd == "block") {
+            // 手动阻塞当前运行的进程
+            osScheduler.blockCurrentProcess();
+            printSystemStatus(osScheduler, processMemoryMap); // 立即刷新显示状态
+        }
+        else if (cmd == "wake") {
             std::string pid;
-            int arr, burst;
-            if (!(iss >> pid >> arr >> burst)) {
-                std::cout << "[Usage] add <pid> <arr> <burst>\n";
-                continue;
-            }
-            osScheduler.createProcess(pid, arr, burst, burst);
-            std::cout << "[System] Process " << pid << " added.\n";
-        }
-        else if (cmd == "ps" || cmd == "4") {
-            const auto& procs = osScheduler.getAllProcesses();
-            std::cout << std::left
-                      << std::setw(10) << "PID"
-                      << std::setw(12) << "State"
-                      << std::setw(6) << "Lvl"
-                      << std::setw(6) << "Thr"
-                      << std::setw(6) << "Rem"
-                      << "Mem\n";
-            std::cout << "---------------------------------------------\n";
-            for (auto p : procs) {
-                std::string mem = "N/A";
-                if (processMemoryMap.count(p->pid)) mem = "Alloc";
-                else if (p->state == FINISHED) mem = "Freed";
-                else if (p->state == SUSPENDED) mem = "Swap";
-
-                std::cout << std::left
-                          << std::setw(10) << p->pid
-                          << std::setw(12) << stateToString(p->state)
-                          << std::setw(6) << p->threads.size()
-                          << std::setw(6) << p->remainingTime
-                          << mem << "\n";
+            if (ss >> pid) {
+                osScheduler.wakeProcess(osScheduler.getProcess(pid));
+                printSystemStatus(osScheduler, processMemoryMap);
             }
         }
-        else if (cmd == "thread" || cmd == "5") {
+        else if (cmd == "suspend") {
             std::string pid;
-            if (!(iss >> pid)) {
-                std::cout << "[Usage] thread <pid>\n";
-                continue;
+            if (ss >> pid) {
+                osScheduler.suspendProcess(pid);
+                printSystemStatus(osScheduler, processMemoryMap);
             }
+        }
+        else if (cmd == "active") {
+            std::string pid;
+            if (ss >> pid) {
+                osScheduler.activateProcess(pid);
+                printSystemStatus(osScheduler, processMemoryMap);
+            }
+        }
+        else if (cmd == "thread") {
+            std::string pid;
+            ss >> pid;
             osScheduler.createThread(pid);
         }
 
-        // ===== 内存 =====
-        else if (cmd == "mem" || cmd == "8") {
-            int size;
-            if (!(iss >> size)) {
-                std::cout << "[Usage] mem <size>\n";
-                continue;
+        // ===== 同步与互斥演示模块 =====
+        else if (cmd == "lock") {
+            PCB* current = osScheduler.getRunningProcess();
+            if (current) {
+                bool success = globalMutex.wait(osScheduler);
+                
+                printSystemStatus(osScheduler, processMemoryMap);
+            } else {
+                std::cout << "[Error] No running process to acquire lock.\n";
             }
+        }
+        else if (cmd == "unlock") {
+            globalMutex.signal(osScheduler);
+            
+            printSystemStatus(osScheduler, processMemoryMap);
+        }
+
+        // ===== 银行家算法演示模块 =====
+        // 1. 初始化系统资源总量
+        else if (cmd == "res_init") {
+            int r1, r2, r3;
+            if (ss >> r1 >> r2 >> r3) {
+                osScheduler.setSystemResources(r1, r2, r3);
+                std::cout << "[Banker] System resources set: " << r1 << " " << r2 << " " << r3 << "\n";
+            }
+        }
+        // 2. 设置进程的最大需求 (Max Matrix)
+        else if (cmd == "res_max") {
+            std::string pid;
+            int r1, r2, r3;
+            if (ss >> pid >> r1 >> r2 >> r3) {
+                PCB* p = osScheduler.getProcess(pid);
+                if (osScheduler.setProcessMaxRes(p, r1, r2, r3))
+                    std::cout << "[Banker] Max resources set for " << pid << "\n";
+                else
+                    std::cout << "[Error] Process not found.\n";
+            }
+        }
+        // 3. 进程请求资源 (Request)
+        else if (cmd == "req") {
+            std::string pid;
+            int r1, r2, r3;
+            if (ss >> pid >> r1 >> r2 >> r3) {
+                PCB* p = osScheduler.getProcess(pid);
+                osScheduler.tryRequestResources(p, r1, r2, r3);
+            }
+        }
+
+        // ===== 3. 内存与文件 (保留原有功能) =====
+        else if (cmd == "mem") {
+            int size; ss >> size;
             mm.allocateMemory(size);
         }
-        else if (cmd == "access" || cmd == "9") {
-            int page, w;
-            if (!(iss >> page >> w)) {
-                std::cout << "[Usage] access <page> <0/1>\n";
-                continue;
-            }
-            mm.accessPage(page, w == 1);
+        else if (cmd == "touch") {
+            std::string name; int size;
+            if (ss >> name >> size) disk.createFile(name, size);
         }
-
-        // ===== 文件系统 =====
-        else if (cmd == "touch" || cmd == "10") {
-            std::string name;
-            int size;
-            if (!(iss >> name >> size)) {
-                std::cout << "[Usage] touch <name> <size>\n";
-                continue;
-            }
-            disk.createFile(name, size);
-        }
-        else if (cmd == "rm" || cmd == "11") {
-            std::string name;
-            if (!(iss >> name)) {
-                std::cout << "[Usage] rm <name>\n";
-                continue;
-            }
-            disk.deleteFile(name);
-        }
-        else if (cmd == "ls" || cmd == "12") {
+        else if (cmd == "ls") {
             disk.listFiles();
         }
-        else if (cmd == "exec" || cmd == "13") {
-            std::string file;
-            if (!(iss >> file)) {
-                std::cout << "[Usage] exec <filename>\n";
-                continue;
+        else if (cmd == "rm") {
+            std::string name; ss >> name;
+            disk.deleteFile(name);
+        }
+        else if (cmd == "exec") {
+            // 模拟从磁盘加载文件并创建进程
+            std::string name;
+            if (ss >> name) {
+                int size = disk.getFileSize(name);
+                if (size > 0) {
+                    int* mem = mm.allocateMemory(size);
+                    if (mem) {
+                        std::string pid = name + "_proc";
+                        osScheduler.createProcess(pid, osScheduler.getCurrentTime(), size, size);
+                        processMemoryMap[pid] = mem;
+                        std::cout << "[Loader] Loaded " << name << " into memory as process " << pid << "\n";
+                    } else {
+                        std::cout << "[Error] Not enough memory.\n";
+                    }
+                } else {
+                    std::cout << "[Error] File not found.\n";
+                }
             }
-
-            int size = disk.getFileSize(file);
-            if (size < 0) {
-                std::cout << "[Error] File not found.\n";
-                continue;
-            }
-
-            int* ptr = mm.allocateMemory(size);
-            if (!ptr) {
-                std::cout << "[Error] Not enough memory.\n";
-                continue;
-            }
-
-            // 用时间戳生成唯一 PID
-            std::string pid = file + "_" + std::to_string(osScheduler.getCurrentTime());
-            osScheduler.createProcess(pid, osScheduler.getCurrentTime(), size, size);
-            processMemoryMap[pid] = ptr;
-
-            std::cout << "[Loader] Process " << pid << " created.\n";
         }
 
-
-        // ===== IPC =====
-        else if (cmd == "send" || cmd == "20") {
-            PCB* cur = osScheduler.getRunningProcess();
+        // ===== 4. IPC (保留) =====
+        else if (cmd == "send") {
             std::string target, msg;
-            if (!cur || !(iss >> target >> msg)) {
-                std::cout << "[Usage] send <pid> <msg>\n";
-                continue;
-            }
-            ipc.sendMessage(cur->pid, target, msg);
-        }
-        else if (cmd == "recv" || cmd == "21") {
+            ss >> target >> msg;
             PCB* cur = osScheduler.getRunningProcess();
-            if (!cur) {
-                std::cout << "[Error] No running process.\n";
-                continue;
-            }
-            Message m;
-            if (ipc.receiveMessage(cur->pid, m))
-                std::cout << "MSG from " << m.senderPid << ": " << m.content << "\n";
-            else
-                std::cout << "[IPC] No message.\n";
+            if (cur) ipc.sendMessage(cur->pid, target, msg);
+            else std::cout << "[Error] No running process to send message.\n";
         }
-        else if (cmd == "ipcs" || cmd == "22") {
+        else if (cmd == "recv") {
+            PCB* cur = osScheduler.getRunningProcess();
+            Message m;
+            if (cur && ipc.receiveMessage(cur->pid, m)) {
+                std::cout << "[IPC] Recv from " << m.senderPid << ": " << m.content << "\n";
+            } else {
+                std::cout << "[IPC] No messages.\n";
+            }
+        }
+        else if (cmd == "ipcs") {
             ipc.printStatus();
         }
 

@@ -6,14 +6,11 @@
 // static const int TIME_SLICES[3] = {2, 4, 8}; 
 
 Scheduler::Scheduler() {
-    // 【关键修复】必须初始化这些变量，否则会崩溃
+    // 必须初始化这些变量，否则会崩溃
     globalTime = 0;
     nextArrivalIdx = 0;
     runningProcess = nullptr;
     currentAlgorithm = ALG_FCFS;
-    
-    // 移除 multiLevelQueues.resize(3); 
-    // 使用 std::deque<PCB*> readyQueue 不需要预先 resize
 }
 
 Scheduler::~Scheduler() {
@@ -56,8 +53,14 @@ PCB* Scheduler::getProcess(const std::string& pid) {
 
 void Scheduler::createThread(const std::string& pid) {
     PCB* p = getProcess(pid);
-    if (!p || p->state == FINISHED) return;
-    // 确保 PCB 结构体中有 threads 成员
+    if (!p) {
+        std::cout << "[Error] Process " << pid << " not found.\n";
+        return;
+    }
+    if (p->state == FINISHED) {
+        std::cout << "[Error] Process " << pid << " is finished.\n";
+        return;
+    }
     p->threads.push_back({(int)p->threads.size(), "READY"});
     std::cout << "[System] Thread created for process " << pid << "\n";
 }
@@ -72,7 +75,6 @@ void Scheduler::checkArrivals() {
         PCB* p = allProcesses[nextArrivalIdx++];
         if (p->state == NEW) {
             p->state = READY;
-            // 【修改】使用 readyQueue 而不是 multiLevelQueues[0]
             readyQueue.push_back(p); 
             std::cout << "[Time " << globalTime << "] "
                       << p->pid << " arrived (Ready)\n";
@@ -178,7 +180,6 @@ void Scheduler::blockCurrentProcess() {
     runningProcess->state = BLOCKED;
     std::cout << "[System] Process " << runningProcess->pid << " blocked.\n";
     runningProcess = nullptr;
-    // 注意：RR模式下阻塞不需要重置 currentSliceUsed，因为下次回来是重新调度的
 }
 
 void Scheduler::wakeProcess(PCB* proc) {
@@ -208,7 +209,7 @@ void Scheduler::activateProcess(const std::string& pid) {
     if (!p || p->state != SUSPENDED) return;
 
     p->state = READY;
-    readyQueue.push_back(p); // 【修改】放入 readyQueue
+    readyQueue.push_back(p); // 
     std::cout << "[System] Process " << pid << " activated.\n";
 }
 
@@ -228,32 +229,90 @@ bool Scheduler::setProcessMaxRes(PCB* p, int r1, int r2, int r3) {
     return true;
 }
 
+// ================= 银行家算法 (完整版) =================
+
+// 辅助函数：比较两个向量 (v1 <= v2 返回 true)
+bool lessOrEqual(const std::vector<int>& v1, const std::vector<int>& v2) {
+    for (size_t i = 0; i < v1.size(); ++i) {
+        if (v1[i] > v2[i]) return false;
+    }
+    return true;
+}
+
+// 核心算法：安全性检测
+bool Scheduler::checkSafety(const std::vector<int>& workAvailable, const std::vector<PCB*>& procs) {
+    std::vector<int> work = workAvailable; // 模拟的工作向量
+    std::vector<bool> finish(procs.size(), false); // 标记进程是否能完成
+
+    // 1. 预处理：已经结束的进程标记为 true
+    for (size_t i = 0; i < procs.size(); ++i) {
+        if (procs[i]->state == FINISHED) finish[i] = true;
+    }
+
+    // 2. 寻找安全序列
+    while (true) {
+        bool found = false;
+        for (size_t i = 0; i < procs.size(); ++i) {
+            // 找到一个：未完成 且 需求 <= 当前可用资源 的进程
+            if (!finish[i] && lessOrEqual(procs[i]->neededResources, work)) {
+                // 模拟让该进程运行并释放资源
+                for (int j = 0; j < 3; ++j) {
+                    work[j] += procs[i]->allocatedResources[j];
+                }
+                finish[i] = true;
+                found = true;
+                // 找到一个后，从头再找（虽然不是最优，但逻辑最简单）
+                break; 
+            }
+        }
+        if (!found) break; // 如果一轮下来没找到任何能执行的进程，退出
+    }
+
+    // 3. 检查是否所有进程都能完成
+    for (bool f : finish) {
+        if (!f) return false; // 只要有一个不能完成，就是不安全状态
+    }
+    return true;
+}
+
 bool Scheduler::tryRequestResources(PCB* p, int r1, int r2, int r3) {
     if (!p) return false;
 
-    std::vector<int> req = {r1, r2, r3};
+    std::vector<int> request = {r1, r2, r3};
+    
+    // 1. 基础检查
     for (int i = 0; i < 3; i++) {
-        // 检查 1: 请求 > 需求
-        if (req[i] > p->neededResources[i]) {
-            std::cout << "[Banker] Error: Request exceeds needs.\n";
+        if (request[i] > p->neededResources[i]) {
+            std::cout << "[Banker] Error: Request exceeds declared Max needs.\n";
             return false;
         }
-        // 检查 2: 请求 > 可用
-        if (req[i] > availableResources[i]) {
-            std::cout << "[Banker] Wait: Not enough available resources.\n";
-            return false;
+        if (request[i] > availableResources[i]) {
+            std::cout << "[Banker] Blocked: Not enough available resources currently.\n";
+            return false; // 实际OS中应该让进程阻塞等待，这里简化为请求失败
         }
     }
 
-    // 假定分配
+    // 2. 试探性分配 (Pretend to allocate)
     for (int i = 0; i < 3; i++) {
-        availableResources[i] -= req[i];
-        p->allocatedResources[i] += req[i];
-        p->neededResources[i] -= req[i];
+        availableResources[i] -= request[i];
+        p->allocatedResources[i] += request[i];
+        p->neededResources[i] -= request[i];
     }
-    
-    std::cout << "[Banker] Resources allocated to " << p->pid << "\n";
-    return true; 
+
+    // 3. 安全性检测 (Banker's Algorithm Core)
+    if (checkSafety(availableResources, allProcesses)) {
+        std::cout << "[Banker] Safe state! Resources allocated to " << p->pid << ".\n";
+        return true;
+    } else {
+        // 4. 不安全 -> 回滚 (Rollback)
+        std::cout << "[Banker] Unsafe state! Allocation denied (Deadlock Avoidance).\n";
+        for (int i = 0; i < 3; i++) {
+            availableResources[i] += request[i];
+            p->allocatedResources[i] -= request[i];
+            p->neededResources[i] += request[i];
+        }
+        return false;
+    }
 }
 
 void Scheduler::releaseResources(PCB* p, int r1, int r2, int r3) {
